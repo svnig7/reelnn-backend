@@ -5,7 +5,8 @@ A asynchronous backend framework for reelnn. Built with FastAPI, Pyrogram, Mongo
 
 ## ✨ Features
 
-IMPORTANT - This project is in active development. Bugs and glitches are expected. Join [reelnnUpdates](https://t.me/reelnnUpdates) for future updates
+IMPORTANT - This project is in active development. Bugs and glitches are expected. Join [reelnnUpdates](https://t.me/reelnnUpdates) for future updates.
+
 See all features -> [reelnn](https://github.com/rafsanbasunia/reelnn)
 
 ## 🔧 Configuration
