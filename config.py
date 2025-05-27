@@ -19,7 +19,6 @@ ADMIN_PASSWORD = "adminadmin" # Replace with your admin password
 SITE_SECRET = "your_secret_key" # Replace with your site secret key
 TMDB_API_KEY = "" # Replace with your TMDB API key
 
-
 # Optional Variables
 
 # If you want to use multiple bot tokens, uncomment the MULTI_TOKENS dictionary and add your tokens. this aditional bots will speed up the process of downloading and streaming files.
@@ -28,7 +27,7 @@ MULTI_TOKENS = {
     # 2: "BOT_TOKEN_2_HERE",
     # Add more tokens as needed
 }
-
+DELETE_AFTER_MINUTES = 10 # Set the number of minutes after which files will be deleted from user message
 POST_UPDATES = True # Set to True if you want to post updates in the post chat
 USE_CAPTION = False # Set to True if you want to use captions for posts instead of file names.
 

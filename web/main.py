@@ -189,7 +189,6 @@ async def get_paginated(
 
     if not response.get("items", []):
         raise HTTPException(status_code=404, detail="No items found")
-    print(response)
     return JSONResponse(content=response)
 
 
@@ -484,7 +483,7 @@ async def media_streamer(request: Request, chat_id: int, id: int, secure_hash: s
         LOGGER.error(f"Error getting file properties: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error retrieving file: {str(e)}")
 
-    print(file_id)
+
     LOGGER.debug("after calling get_file_properties")
 
     if file_id.unique_id[:6] != secure_hash:

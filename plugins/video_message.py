@@ -56,7 +56,7 @@ async def process_video(client: Client, message: Message, update_cache: bool):
 
             try:
                 upload_result = movie_db.upsert_movie(media_details)
-                print(media_details)
+
                 await send_info(
                     client,
                     f"✅ Movie **{media_details.get('title', 'Unknown')}** {upload_result['status']} successfully",
@@ -73,7 +73,6 @@ async def process_video(client: Client, message: Message, update_cache: bool):
             LOGGER.info(f"Processing show: {title}")
             try:
                 upload_result = show_db.upsert_show(media_details)
-                print(media_details)
                 await send_info(
                     client,
                     f"✅ Show **{media_details.get('title', 'Unknown')}** {upload_result['status']} successfully",

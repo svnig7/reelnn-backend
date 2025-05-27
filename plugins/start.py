@@ -4,7 +4,7 @@ from utils.db_utils.movie_db import MovieDatabase
 from utils.db_utils.show_db import ShowDatabase
 import asyncio
 import logging
-
+import config
 
 scheduled_deletions = {}
 
@@ -74,7 +74,7 @@ async def forward_(client: Client, message: Message):
                 )
                 
                 
-                task = asyncio.create_task(delete_after_delay(client, message.chat.id, forwarded_msg.id, 10))
+                task = asyncio.create_task(delete_after_delay(client, message.chat.id, forwarded_msg.id, 60*config.DELETE_AFTER_MINUTES))
                 scheduled_deletions[(message.chat.id, forwarded_msg.id)] = task
 
                 await message.reply_text("Please forward this file to your saved messages. This file will be deleted in 10 minutes.")
@@ -135,7 +135,7 @@ async def forward_(client: Client, message: Message):
                 )
                 
                 
-                task = asyncio.create_task(delete_after_delay(client, message.chat.id, forwarded_msg.id, 10))
+                task = asyncio.create_task(delete_after_delay(client, message.chat.id, forwarded_msg.id, 60*config.DELETE_AFTER_MINUTES))
                 scheduled_deletions[(message.chat.id, forwarded_msg.id)] = task
 
                 await message.reply_text("Please forward this file to your saved messages. This file will be deleted in 10 minutes.")
@@ -150,7 +150,6 @@ async def forward_(client: Client, message: Message):
             await processing_msg.edit_text("Invalid media type. Expected 'm' for movie or 's' for show.")
             
     except Exception as e:
-        print(f"Error forwarding file: {str(e)}")
         if 'processing_msg' in locals():
             await processing_msg.edit_text(f"Sorry, an error occurred while processing your request.")
         else:

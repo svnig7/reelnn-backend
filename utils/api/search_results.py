@@ -80,11 +80,11 @@ async def search_all_media(query: str, limit: int = 20) -> List[Dict[str, Any]]:
     
     combined_results = movie_results + show_results
     combined_results.sort(key=lambda x: x.get('score', 0), reverse=True)
-    print(f"Combined results: {combined_results}")
+
     
     return combined_results
 
-async def search_movies(query: str, limit: int = 20) -> List[Dict[str, Any]]:
+async def search_movies(query: str, limit: int = 5) -> List[Dict[str, Any]]:
     """
     Search movies using Atlas Search with fuzzy matching.
     """
@@ -94,12 +94,12 @@ async def search_movies(query: str, limit: int = 20) -> List[Dict[str, Any]]:
         search_pipeline = [
             {
                 "$search": {
-                    "index": "movie",  
+                    "index": "movies",  
                     "text": {
                         "query": query,
                         "path": "title",
                         "fuzzy": {
-                            "maxEdits": 1,
+                            "maxEdits": 2,
                             "prefixLength": 1
                         }
                     },
@@ -145,12 +145,12 @@ async def search_movies(query: str, limit: int = 20) -> List[Dict[str, Any]]:
                 "media_type": "movie",
                 
             })
-        
+
         return processed_results
     finally:
         pass
 
-async def search_shows(query: str, limit: int = 20) -> List[Dict[str, Any]]:
+async def search_shows(query: str, limit: int = 5) -> List[Dict[str, Any]]:
     """
     Search shows using Atlas Search with fuzzy matching.
     """
@@ -165,7 +165,7 @@ async def search_shows(query: str, limit: int = 20) -> List[Dict[str, Any]]:
                         "query": query,
                         "path": "title",
                         "fuzzy": {
-                            "maxEdits": 1,
+                            "maxEdits": 2,
                             "prefixLength": 1
                         }
                     },
@@ -211,6 +211,7 @@ async def search_shows(query: str, limit: int = 20) -> List[Dict[str, Any]]:
                 "media_type": "show",
                 
             })
+        print(f"Processed show results: {processed_results}")
             
         return processed_results
     finally:
