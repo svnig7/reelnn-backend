@@ -33,7 +33,7 @@ USE_CAPTION = False # Set to True if you want to use captions for posts instead 
 
 # Port configuration
 import os
-PORT = int(os.environ.get("PORT", 8080))
+PORT = int(os.environ.get("PORT", 6519))
 
 
 
