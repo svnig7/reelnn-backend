@@ -106,8 +106,6 @@ async def auth_check(token_data: dict = Depends(verify_token)):
 @app.get("/api/v1/heroslider")
 async def get_hero_slider(request: Request):
     items = get_hero_slider_items()
-    if not items:
-        raise HTTPException(status_code=404, detail="No items found")
     return JSONResponse(content=items)
 
 
@@ -124,8 +122,7 @@ async def get_latest(media_type: str, limit: int = Query(21, gt=0)):
         List of movie or show dictionaries or error dict
     """
     items = get_latest_entries(media_type, limit)
-    if not items:
-        raise HTTPException(status_code=404, detail="No items found")
+    
     return JSONResponse(content=items)
 
 
@@ -186,9 +183,6 @@ async def get_paginated(
 
     if "status" in response and response["status"] == "error":
         raise HTTPException(status_code=400, detail=response["message"])
-
-    if not response.get("items", []):
-        raise HTTPException(status_code=404, detail="No items found")
     return JSONResponse(content=response)
 
 
