@@ -107,7 +107,8 @@ async def get_content_details(mtitle: str, client: Client, message: Message) -> 
         if not parsed_data.get("title"):
             return {"success": False, "error": "Could not parse title from filename", "data": None, "_type": None}
             
-        title = parsed_data.get("title").replace("_", "").replace("-", "")
+        title = parsed_data.get("title").replace("_", " ").replace("-", " ").replace(":", " ")
+        title = ' '.join(title.split())
         year = parsed_data.get("year")
         season = parsed_data.get("season")
         episode = parsed_data.get("episode")

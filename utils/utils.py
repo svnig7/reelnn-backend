@@ -69,11 +69,11 @@ def remove_redandent(filename):
     for pattern in patterns:
         match = re.search(pattern, result)
         if match:
-            result = re.sub(pattern, "", result)
+            result = re.sub(pattern, " ", result)
             break  
 
     
-    result = re.sub(r"^[_\s-]+|[_\s-]+$", "", result)
+    result = re.sub(r"^[_\s-]+|[_\s-]+$", " ", result)
 
     return result
 
