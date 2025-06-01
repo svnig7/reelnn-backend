@@ -18,7 +18,7 @@ async def auto_poster(client: Client, message: Message, content: dict, media_typ
 
 **Genres :** `{', '.join(content["genres"])}`
 **Score ⭐️:** `{content['vote_average']}` ~ `{content['vote_count']} votes`
-**Director 📽:** `{",".join(content['directors'])}`
+**{"Creator" if media_type == "show" else "Director"} 📽:** `{",".join(content['creators']) if media_type == "show" else ",".join(content['directors']) }`
 **Stars 👥:** `{",".join([actor['name'] for actor in content['cast'][:4]])}`
 
 **Story Line :** {content['overview']}
