@@ -8,7 +8,6 @@ class ShowDatabase:
         db = get_database("shows_db")
         self.shows_collection = db["shows"]
         
-        
         self.shows_collection.create_index("sid", unique=True)
     
     def upsert_show(self, show_dict: Dict[str, Any]) -> Dict[str, Any]:
@@ -27,15 +26,15 @@ class ShowDatabase:
             return {"status": "error", "message": "Show ID (sid) is required"}
         
         try:
-            
             existing_show = self.shows_collection.find_one({"sid": show_id})
             
             if existing_show:
-                
                 fields_to_update = [
                     "title", "original_title", "release_date", "overview", 
                     "poster_path", "backdrop_path", "popularity", 
-                    "vote_average", "vote_count", "genres", "logo", "cast", "creators", "links", "studios", "file_hash", "msg_id", "chat_id", "total_seasons", "total_episodes", "status", "trailer"
+                    "vote_average", "vote_count", "genres", "logo", "cast", 
+                    "creators", "links", "studios", "file_hash", "msg_id", 
+                    "chat_id", "total_seasons", "total_episodes", "status", "trailer"
                 ]
                 
                 update_doc = {}
@@ -43,16 +42,12 @@ class ShowDatabase:
                     if field in show_dict:
                         update_doc[field] = show_dict[field]
                 
-                
                 if "season" in show_dict:
-                    
                     if "season" not in existing_show:
                         existing_show["season"] = []
                     
-                    
                     for new_season in show_dict.get("season", []):
                         season_number = new_season["season_number"]
-                        
                         
                         existing_season = None
                         for s in existing_show["season"]:
@@ -61,13 +56,11 @@ class ShowDatabase:
                                 break
                         
                         if existing_season:
-                            
                             if "episodes" not in existing_season:
                                 existing_season["episodes"] = []
                             
                             for new_episode in new_season.get("episodes", []):
                                 episode_number = new_episode["episode_number"]
-                                
                                 
                                 existing_episode = None
                                 for e in existing_season["episodes"]:
@@ -76,35 +69,17 @@ class ShowDatabase:
                                         break
                                 
                                 if existing_episode:
-                                    
                                     if "quality" not in existing_episode:
                                         existing_episode["quality"] = []
                                     
-                                    for new_quality in new_episode.get("quality", []):
-                                        quality_type = new_quality["type"]
-                                        
-                                        
-                                        quality_exists = False
-                                        for i, q in enumerate(existing_episode["quality"]):
-                                            if q["type"] == quality_type:
-                                                
-                                                existing_episode["quality"][i] = new_quality
-                                                quality_exists = True
-                                                break
-                                        
-                                        if not quality_exists:
-                                            
-                                            existing_episode["quality"].append(new_quality)
+                                    # Append all new quality entries without checking for duplicates
+                                    existing_episode["quality"].extend(new_episode.get("quality", []))
                                 else:
-                                    
                                     existing_season["episodes"].append(new_episode)
                         else:
-                            
                             existing_show["season"].append(new_season)
                     
-                    
                     update_doc["season"] = existing_show["season"]
-                
                 
                 result = self.shows_collection.update_one(
                     {"sid": show_id},
@@ -117,7 +92,6 @@ class ShowDatabase:
                     "modified_count": result.modified_count
                 }
             else:
-                
                 result = self.shows_collection.insert_one(show_dict)
                 
                 return {
@@ -134,15 +108,13 @@ class ShowDatabase:
     def find_show_by_id(self, show_id: int) -> Optional[Dict[str, Any]]:
         """Find a show by its ID."""
         try:
-            
             show_id = int(show_id)
             show = self.shows_collection.find_one({"sid": show_id})
-            print(f"Searching for show with mid: {show_id}, Found: {show is not None}")
+            print(f"Searching for show with sid: {show_id}, Found: {show is not None}")
             return show
         except Exception as e:
-            print(f"Error finding movie: {str(e)}")
+            print(f"Error finding show: {str(e)}")
             return None
-    
     
     def find_shows_by_title(self, title_query: str) -> List[Dict[str, Any]]:
         """Find shows by title (case-insensitive partial match)."""
@@ -171,6 +143,7 @@ class ShowDatabase:
                 "status": "error",
                 "message": str(e)
             }
+    
     def find_shows_paginated(self, skip: int, limit: int, sort_fields=None) -> tuple:
         """
         Find shows with pagination and sorting.
@@ -203,7 +176,6 @@ class ShowDatabase:
             .limit(limit)
         paginated_entries = []
         for entry in cursor:
-            
             year = None
             if "release_date" in entry and entry["release_date"]:
                 try:
@@ -218,7 +190,7 @@ class ShowDatabase:
                 "poster": entry.get("poster_path"),
                 "vote_average": entry.get("vote_average"),
                 "vote_count": entry.get("vote_count"),
-                "media_type": "movie"
+                "media_type": "show"
             }
             paginated_entries.append(processed_entry)
         
