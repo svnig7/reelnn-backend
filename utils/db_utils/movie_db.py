@@ -9,7 +9,6 @@ class MovieDatabase:
         db = get_database("movies_db")
         self.movies_collection = db["movies"]
         
-        
         self.movies_collection.create_index("mid", unique=True)
     
     def upsert_movie(self, movie_dict: Dict[str, Any]) -> Dict[str, Any]:
@@ -28,15 +27,15 @@ class MovieDatabase:
             return {"status": "error", "message": "Movie ID (mid) is required"}
         
         try:
-            
             existing_movie = self.movies_collection.find_one({"mid": movie_id})
             
             if existing_movie:
-                
                 fields_to_update = [
                     "title", "original_title", "release_date", "overview", 
                     "poster_path", "backdrop_path", "popularity", 
-                    "vote_average", "vote_count", "genres", "logo", "cast", "runtime", "directors", "links", "studios", "file_hash", "msg_id", "chat_id", "trailer"
+                    "vote_average", "vote_count", "genres", "logo", 
+                    "cast", "runtime", "directors", "links", "studios", 
+                    "file_hash", "msg_id", "chat_id", "trailer"
                 ]
                 
                 update_doc = {}
@@ -44,31 +43,14 @@ class MovieDatabase:
                     if field in movie_dict:
                         update_doc[field] = movie_dict[field]
                 
-                
                 if "quality" in movie_dict:
-                    
                     if "quality" not in existing_movie:
                         existing_movie["quality"] = []
                     
-                    for new_quality in movie_dict.get("quality", []):
-                        quality_type = new_quality["type"]
-                        
-                        
-                        quality_exists = False
-                        for i, q in enumerate(existing_movie["quality"]):
-                            if q["type"] == quality_type:
-                                
-                                existing_movie["quality"][i] = new_quality
-                                quality_exists = True
-                                break
-                        
-                        if not quality_exists:
-                            
-                            existing_movie["quality"].append(new_quality)
-                    
+                    # Append all new quality entries without checking for duplicates
+                    existing_movie["quality"].extend(movie_dict.get("quality", []))
                     
                     update_doc["quality"] = existing_movie["quality"]
-                
                 
                 result = self.movies_collection.update_one(
                     {"mid": movie_id},
@@ -81,7 +63,6 @@ class MovieDatabase:
                     "modified_count": result.modified_count
                 }
             else:
-                
                 result = self.movies_collection.insert_one(movie_dict)
                 
                 return {
@@ -98,7 +79,6 @@ class MovieDatabase:
     def find_movie_by_id(self, movie_id: int) -> Optional[Dict[str, Any]]:
         """Find a movie by its ID."""
         try:
-            
             movie_id = int(movie_id)
             movie = self.movies_collection.find_one({"mid": movie_id})
             print(f"Searching for movie with mid: {movie_id}, Found: {movie is not None}")
@@ -162,13 +142,12 @@ class MovieDatabase:
             "vote_count": 1
         }
         
-        cursor = self.movies_collection.find({},projection) \
+        cursor = self.movies_collection.find({}, projection) \
             .sort(sort_fields) \
             .skip(skip) \
             .limit(limit)
         paginated_entries = []
         for entry in cursor:
-            
             year = None
             if "release_date" in entry and entry["release_date"]:
                 try:

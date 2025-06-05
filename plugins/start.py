@@ -138,7 +138,7 @@ async def forward_(client: Client, message: Message):
                 task = asyncio.create_task(delete_after_delay(client, message.chat.id, forwarded_msg.id, 60*config.DELETE_AFTER_MINUTES))
                 scheduled_deletions[(message.chat.id, forwarded_msg.id)] = task
 
-                await message.reply_text("Please forward this file to your saved messages. This file will be deleted in 10 minutes.")
+                #await message.reply_text("Please forward this file to your saved messages. This file will be deleted in 10 minutes.")
                 
                 
                 await processing_msg.delete()
