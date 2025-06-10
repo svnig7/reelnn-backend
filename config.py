@@ -15,9 +15,23 @@ POST_CHAT = -1001234567891 # Replace with your actual post chat ID
 ADMIN_USERNAME = "admin" # Replace with your admin username
 ADMIN_PASSWORD = "adminadmin" # Replace with your admin password
 
-
 SITE_SECRET = "your_secret_key" # Replace with your site secret key
 TMDB_API_KEY = "" # Replace with your TMDB API key
+
+SITE_NAME = "reelnn"
+POST_CHAT_LINK = "https://t.me/reelnnUpdates"
+ENABLE_REGISTRATION = False
+SIGNUP_IMAGE = "https://i.ibb.co/dJ2t5bsF/anime-AI-1.jpg"
+SIGNUP_MESSAGE = """
+**Heyaa** 🙋🏻‍♀️\n
+**Welcome to reelnn!** 🎬 
+Your ultimate destination for entertainment!
+To get started and access our media library,
+please register your account.
+
+👉 Use the /register command to sign up for the site.
+"""
+
 
 # Optional Variables
 

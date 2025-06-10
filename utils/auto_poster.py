@@ -13,8 +13,8 @@ async def auto_poster(client: Client, message: Message, content: dict, media_typ
         
         caption_text = f"""
 `{content['title']}` `({release_year})` `{f"Season {content['season'][0]['season_number']}" if media_type == "show" else ""} {f"Episode {content['season'][0]['episodes'][0]['episode_number']}" if media_type == "show" else ""}`
-**Quality :** `{content['season'][0]["episodes"][0]["quality"][0]["type"] if media_type == "show" else content["quality"][0]["type"]}`
-**Size :** `{content['season'][0]["episodes"][0]["quality"][0]["size"] if media_type == "show" else content["quality"][0]["size"]}`
+**Quality :** `{content['season'][0]['episodes'][0]['quality'][0]['type'] if media_type == "show" else content['quality'][0]['type']}`
+**Size :** `{content['season'][0]['episodes'][0]['quality'][0]['size'] if media_type == "show" else content['quality'][0]['size']}`
 
 **Genres :** `{', '.join(content["genres"])}`
 **Score ⭐️:** `{content['vote_average']}` ~ `{content['vote_count']} votes`

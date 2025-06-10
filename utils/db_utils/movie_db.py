@@ -1,4 +1,3 @@
-from pymongo import MongoClient
 from typing import Dict, List, Any, Optional
 from utils.db_utils.mongo_client import get_database
 

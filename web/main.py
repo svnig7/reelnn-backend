@@ -30,6 +30,7 @@ import time
 from web.auth import verify_token, authenticate_user
 from contextlib import asynccontextmanager
 import asyncio
+from utils.db_utils.user_db import UserDatabase
 
 app = FastAPI()
 class_cache = {}
@@ -52,6 +53,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     cache_cleaner_task = asyncio.create_task(periodic_cache_cleanup())
@@ -65,9 +67,10 @@ async def lifespan(app: FastAPI):
 
 async def periodic_cache_cleanup():
     while True:
-        await asyncio.sleep(900)  # 15 minutes
+        await asyncio.sleep(900)
         clean_cache()
         LOGGER.debug(f"Cache cleaned. Items remaining: {len(class_cache)}")
+
 
 def verify_stream_token(token: str):
     try:
@@ -79,7 +82,6 @@ def verify_stream_token(token: str):
         return decoded
     except jwt.PyJWTError as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
-
 
 
 @app.post("/api/v1/login")
@@ -103,6 +105,7 @@ async def auth_check(token_data: dict = Depends(verify_token)):
     """Check if the user is authenticated"""
     return {"authenticated": True, "user": token_data.get("sub", "Unknown")}
 
+
 @app.get("/api/v1/heroslider")
 async def get_hero_slider(request: Request):
     items = get_hero_slider_items()
@@ -122,7 +125,7 @@ async def get_latest(media_type: str, limit: int = Query(21, gt=0)):
         List of movie or show dictionaries or error dict
     """
     items = get_latest_entries(media_type, limit)
-    
+
     return JSONResponse(content=items)
 
 
@@ -165,7 +168,9 @@ async def get_paginated(
     media_type: str,
     page: int = Query(1, gt=0),
     items_per_page: int = Query(20, gt=0, le=100),
-    sort_by: str = Query("new", description="Sort by: new_release, most_rated, release_date"),
+    sort_by: str = Query(
+        "new", description="Sort by: new_release, most_rated, release_date"
+    ),
 ):
     """
     Get paginated movie or show entries from the database.
@@ -184,7 +189,6 @@ async def get_paginated(
     if "status" in response and response["status"] == "error":
         raise HTTPException(status_code=400, detail=response["message"])
     return JSONResponse(content=response)
-
 
 
 @app.get("/api/v1/trending")
@@ -423,10 +427,10 @@ async def stream_handler(
         try:
             return await media_streamer(request, int(chat_id), int(msg_id), file_hash)
         except TimeoutError:
-            # Return a more user-friendly error for timeout issues
+
             raise HTTPException(
                 status_code=503,
-                detail="Streaming service temporarily unavailable. Please try again in a few moments."
+                detail="Streaming service temporarily unavailable. Please try again in a few moments.",
             )
     except HTTPException as e:
         raise e
@@ -434,7 +438,6 @@ async def stream_handler(
         raise HTTPException(
             status_code=500, detail=f"Error streaming content: {str(e)}"
         )
-
 
 # Credits:
 # This code is adapted from TechZIndex by TechShreyash (GitHub Username)
@@ -477,7 +480,6 @@ async def media_streamer(request: Request, chat_id: int, id: int, secure_hash: s
         LOGGER.error(f"Error getting file properties: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error retrieving file: {str(e)}")
 
-
     LOGGER.debug("after calling get_file_properties")
 
     if file_id.unique_id[:6] != secure_hash:
@@ -498,7 +500,7 @@ async def media_streamer(request: Request, chat_id: int, id: int, secure_hash: s
             status_code=416,
             headers={"Content-Range": f"bytes */{file_size}"},
         )
-    chunk_size = min(1024 * 1024, file_size // 10)
+    chunk_size = min(1024 * 1024, max(1024, file_size // 10))
     until_bytes = min(until_bytes, file_size - 1)
 
     offset = from_bytes - (from_bytes % chunk_size)
@@ -512,7 +514,7 @@ async def media_streamer(request: Request, chat_id: int, id: int, secure_hash: s
     )
     mime_type = file_id.mime_type
     file_name = file_id.file_name
-    disposition = "attachment"
+    disposition = "inline"
 
     if mime_type:
         if not file_name:
@@ -536,22 +538,214 @@ async def media_streamer(request: Request, chat_id: int, id: int, secure_hash: s
             "Content-Length": str(req_length),
             "Content-Disposition": f'{disposition}; filename="{file_name}"',
             "Accept-Ranges": "bytes",
-            "Access-Control-Allow-Origin": "*",  
-            "Access-Control-Allow-Methods": "GET, OPTIONS",  
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
             "Access-Control-Allow-Headers": "Range, Content-Type",
         },
     )
 
 
-
 def clean_cache():
     current_time = time.time()
-    expired_keys = [k for k, v in class_cache.items() if current_time - v["timestamp"] > 3600]
+    expired_keys = [
+        k for k, v in class_cache.items() if current_time - v["timestamp"] > 3600
+    ]
     for key in expired_keys:
         del class_cache[key]
+
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page():
     """Serve the login page."""
     with open(templates_dir / "login.html") as f:
         return HTMLResponse(content=f.read())
+
+
+@app.get("/api/v1/users")
+async def get_users(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    token: str = Depends(token_query),
+):
+    """Get all users with pagination"""
+    try:
+        user_db = UserDatabase()
+        users = user_db.get_all_users(skip=skip, limit=limit)
+
+        if not isinstance(users, list):
+            users = []
+
+        for user in users:
+            if "_id" in user:
+                user["_id"] = str(user["_id"])
+
+        return {"users": users, "count": len(users)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch users: {str(e)}")
+
+
+@app.get("/api/v1/users/search")
+async def search_users(
+    query: str = Query(..., min_length=1), token: str = Depends(token_query)
+):
+    """Search users by username, first name, or user ID"""
+    try:
+        user_db = UserDatabase()
+        users = user_db.search_users(query)
+
+        if not isinstance(users, list):
+            users = []
+
+        for user in users:
+            if "_id" in user:
+                user["_id"] = str(user["_id"])
+
+        return {"users": users, "count": len(users)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+
+
+@app.put("/api/v1/users/{user_id}")
+async def update_user(
+    user_id: int, request: Request, token: str = Depends(token_query)
+):
+    """Update user information"""
+    try:
+        payload = await request.json()
+
+        if "user_id" in payload:
+            del payload["user_id"]
+
+        user_db = UserDatabase()
+        result = user_db.update_user(user_id, payload)
+
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")
+
+
+@app.delete("/api/v1/users/{user_id}")
+async def delete_user(user_id: int, token: str = Depends(token_query)):
+    """Delete user"""
+    try:
+        user_db = UserDatabase()
+        result = user_db.delete_user(user_id)
+
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)}")
+
+
+@app.put("/api/v1/updateMovie/{movie_id}")
+async def update_movie(
+    movie_id: int, request: Request, token: str = Depends(token_query)
+):
+    """Update movie information"""
+    try:
+        payload = await request.json()
+
+        from utils.db_utils.movie_db import MovieDatabase
+
+        movie_db = MovieDatabase()
+
+        existing_movie = movie_db.find_movie_by_id(movie_id)
+        if not existing_movie:
+            raise HTTPException(status_code=404, detail="Movie not found")
+
+        for field, value in payload.items():
+            existing_movie[field] = value
+
+        result = movie_db.movies_collection.update_one(
+            {"mid": movie_id}, {"$set": payload}
+        )
+
+        if result.modified_count > 0:
+            return {"status": "success", "message": "Movie updated successfully"}
+        else:
+            return {"status": "no_changes", "message": "No changes made"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")
+
+
+@app.post("/api/v1/checkUser")
+async def check_user_endpoint(request: Request):
+    """
+    Check if a user exists in the database using JWT token.
+
+    Expects JSON payload with:
+    {
+        "token": "jwt_token_containing_user_id"
+    }
+
+    Returns:
+        User details if found, error message otherwise
+    """
+    try:
+        payload = await request.json()
+        token = payload.get("token")
+
+        if not token:
+            raise HTTPException(status_code=400, detail="Token is required")
+
+        try:
+            decoded = jwt.decode(token, SITE_SECRET, algorithms=["HS256"])
+            print(decoded)
+            user_id = decoded.get("user_id")
+
+            if not user_id:
+                raise HTTPException(
+                    status_code=400, detail="Token does not contain user_id"
+                )
+
+        except jwt.PyJWTError as e:
+            raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+
+        from utils.api.checkUser import check_user
+
+        result = check_user(int(user_id))
+        print(result)
+
+        if result["status"] == "success":
+            return JSONResponse(content=result)
+        elif result["status"] == "not_found":
+            raise HTTPException(status_code=404, detail=result["message"])
+        else:
+            raise HTTPException(status_code=500, detail=result["message"])
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
+
+
+@app.put("/api/v1/updateShow/{show_id}")
+async def update_show(
+    show_id: int, request: Request, token: str = Depends(token_query)
+):
+    """Update show information"""
+    try:
+        payload = await request.json()
+
+        from utils.db_utils.show_db import ShowDatabase
+
+        show_db = ShowDatabase()
+
+        existing_show = show_db.find_show_by_id(show_id)
+        if not existing_show:
+            raise HTTPException(status_code=404, detail="Show not found")
+
+        for field, value in payload.items():
+            existing_show[field] = value
+
+        result = show_db.shows_collection.update_one(
+            {"sid": show_id}, {"$set": payload}
+        )
+
+        if result.modified_count > 0:
+            return {"status": "success", "message": "Show updated successfully"}
+        else:
+            return {"status": "no_changes", "message": "No changes made"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")

@@ -45,6 +45,10 @@ class ByteStreamer:
         client = self.client
         work_loads[index] += 1
         logging.debug(f"Starting to yield file with client {index}.")
+        
+        if chunk_size <= 0:
+            chunk_size = 1024
+            
         media_session = await self.generate_media_session(client, file_id)
         current_part = 1
         location = await self.get_location(file_id)

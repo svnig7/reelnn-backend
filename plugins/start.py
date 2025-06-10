@@ -1,5 +1,5 @@
 from pyrogram import Client, filters
-from pyrogram.types import Message
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from utils.db_utils.movie_db import MovieDatabase
 from utils.db_utils.show_db import ShowDatabase
 import asyncio
@@ -26,11 +26,14 @@ LINK_FLITER = filters.private & filters.create(
     lambda _, __, msg: msg.text and msg.text.startswith("/start file_")
 )
 
+register_FLITER = filters.private & filters.create(
+    lambda _, __, msg: msg.text and msg.text.startswith("/start signup")
+)
+
 
 @Client.on_message(LINK_FLITER, -2)
 async def forward_(client: Client, message: Message):
     try:
-        
         processing_msg = await message.reply_text("Processing your request, please wait...")
         
         token = message.text.split("file_")[1]
@@ -53,18 +56,19 @@ async def forward_(client: Client, message: Message):
                 if not movie:
                     await processing_msg.edit_text("Sorry, movie not found.")
                     return
+                
+                # Add bounds checking for quality array
+                if "quality" not in movie or len(movie["quality"]) <= int(quality):
+                    await processing_msg.edit_text(f"Sorry, quality option {quality} not available for this movie.")
+                    return
                     
-                
                 file_data = movie["quality"][int(quality)]
-                
                         
                 if not file_data or "msg_id" not in file_data or "chat_id" not in file_data:
-                    await processing_msg.edit_text(f"Sorry, {quality} quality not available for this movie.")
+                    await processing_msg.edit_text(f"Sorry, this quality is not available for this movie.")
                     return
                 
-                
                 await processing_msg.edit_text("Found your file! Forwarding it now...")
-                
                 
                 forwarded_msg = await client.forward_messages(
                     chat_id=message.chat.id,
@@ -73,17 +77,15 @@ async def forward_(client: Client, message: Message):
                     drop_author=True
                 )
                 
-                
                 task = asyncio.create_task(delete_after_delay(client, message.chat.id, forwarded_msg.id, 60*config.DELETE_AFTER_MINUTES))
                 scheduled_deletions[(message.chat.id, forwarded_msg.id)] = task
-
-                await message.reply_text("Please forward this file to your saved messages. This file will be deleted in 10 minutes.")
-                
                 
                 await processing_msg.delete()
                 
-            finally:
-                pass
+            except Exception as e:
+                logging.error(f"Movie processing error: {str(e)}")
+                await processing_msg.edit_text("Sorry, an error occurred while processing your movie request.")
+                return
                 
         elif media_type == "s":  
             show_db = ShowDatabase()
@@ -138,7 +140,7 @@ async def forward_(client: Client, message: Message):
                 task = asyncio.create_task(delete_after_delay(client, message.chat.id, forwarded_msg.id, 60*config.DELETE_AFTER_MINUTES))
                 scheduled_deletions[(message.chat.id, forwarded_msg.id)] = task
 
-                #await message.reply_text("Please forward this file to your saved messages. This file will be deleted in 10 minutes.")
+            
                 
                 
                 await processing_msg.delete()
@@ -150,13 +152,35 @@ async def forward_(client: Client, message: Message):
             await processing_msg.edit_text("Invalid media type. Expected 'm' for movie or 's' for show.")
             
     except Exception as e:
+        logging.error(f"General processing error: {str(e)}")
         if 'processing_msg' in locals():
-            await processing_msg.edit_text(f"Sorry, an error occurred while processing your request.")
+            await processing_msg.edit_text("Sorry, an error occurred while processing your request.")
         else:
-            await message.reply_text(f"Sorry, an error occurred while processing your request.")
+            await message.reply_text("Sorry, an error occurred while processing your request.")
 
 
 # @Client.on_message(filters.command("start", prefixes="/") & filters.private)
 # async def start_command(client: Client, message: Message):
 #     await message.reply_text("Hello! I am your bot. How can I assist you today?")
+
+
+@Client.on_message(register_FLITER, -2)
+async def register_welcome(client: Client, message: Message):
+    """Handle welcome message for registration signup links"""
+    try:
+        
+        await message.reply_photo(
+            photo=config.SIGNUP_IMAGE,
+            caption=config.SIGNUP_MESSAGE,
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton("Discover 💎", url=f"{config.POST_CHAT_LINK}")],
+                    
+                ]
+            )
+        )
+        
+    except Exception as e:
+        logging.error(f"Error in register welcome handler: {str(e)}")
+        await message.reply_text("Welcome! Please use the `/register` command to sign up for the site.")
 
