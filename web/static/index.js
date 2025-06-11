@@ -1,4 +1,3 @@
-
 function switchTab(tabName) {
   
   document.querySelectorAll(".tab-content").forEach((tab) => {
@@ -550,9 +549,7 @@ function displaySearchResults(mediaType, results) {
     const isSelected = trendingItems[mediaType].some((i) => i.id === item.id);
 
     resultItem.innerHTML = `
-                    <img src="https:
-                      item.poster
-                    }" onerror="this.src='https:
+                    <img src="${item.poster || 'https://via.placeholder.com/50x75?text=No+Image'}" onerror="this.src='https://via.placeholder.com/50x75?text=No+Image'">
                     <div>
                         <strong>${item.title}</strong>
                         ${item.year ? ` (${item.year})` : ""}
@@ -636,9 +633,7 @@ function updateTrendingDisplay(mediaType) {
     const trendingItem = document.createElement("div");
     trendingItem.className = "trending-item";
     trendingItem.innerHTML = `
-                    <img src="https:
-                      item.poster
-                    }" onerror="this.src='https:
+                    <img src="https://image.tmdb.org/t/p/w92${item.poster}" onerror="this.src='https://via.placeholder.com/40x60?text=No+Image'">
                     <div>
                         <strong>${item.title}</strong>
                         ${item.year ? ` (${item.year})` : ""}

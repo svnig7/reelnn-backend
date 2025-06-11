@@ -14,7 +14,7 @@ async def register_command(client: Client, message: Message):
     """Handle user registration command."""
     try:
         try:
-            post_chat = client.get_chat_member(
+            post_chat = await client.get_chat_member(
                 int(config.POST_CHAT), int(message.from_user.id)
             )
             mem_post_chat = str(post_chat.status)
