@@ -13,35 +13,35 @@ registration_handler = UserRegistrationHandler()
 async def register_command(client: Client, message: Message):
     """Handle user registration command."""
     try:
-        try:
-            post_chat = await client.get_chat_member(
-                int(config.POST_CHAT), int(message.from_user.id)
-            )
-            mem_post_chat = str(post_chat.status)
-        except Exception as e:
-            mem_post_chat = "None"
+        # try:
+        #     post_chat = await client.get_chat_member(
+        #         int(config.POST_CHAT), int(message.from_user.id)
+        #     )
+        #     mem_post_chat = str(post_chat.status)
+        # except Exception as e:
+        #     mem_post_chat = "None"
 
-        if mem_post_chat.lower() not in [
-            "chatmemberstatus.owner",
-            "chatmemberstatus.member",
-            "chatmemberstatus.administrator",
-            "chatmemberstatus.creator",
-        ]:
-            await message.reply(
-                f"""You're not a part of <b>{config.SITE_NAME}</b> family. Please join this channel and try to register again 😊""",
-                disable_web_page_preview=True,
-                quote=True,
-                reply_markup=InlineKeyboardMarkup(
-                    [
-                        [
-                            InlineKeyboardButton(
-                                f"{config.SITE_NAME} 🎬", url=f"{config.POST_CHAT_LINK}"
-                            )
-                        ]
-                    ]
-                ),
-            )
-            return
+        # if mem_post_chat.lower() not in [
+        #     "chatmemberstatus.owner",
+        #     "chatmemberstatus.member",
+        #     "chatmemberstatus.administrator",
+        #     "chatmemberstatus.creator",
+        # ]:
+        #     await message.reply(
+        #         f"""You're not a part of <b>{config.SITE_NAME}</b> family. Please join this channel and try to register again 😊""",
+        #         disable_web_page_preview=True,
+        #         quote=True,
+        #         reply_markup=InlineKeyboardMarkup(
+        #             [
+        #                 [
+        #                     InlineKeyboardButton(
+        #                         f"{config.SITE_NAME} 🎬", url=f"{config.POST_CHAT_LINK}"
+        #                     )
+        #                 ]
+        #             ]
+        #         ),
+        #     )
+        #     return
 
         if not config.ENABLE_REGISTRATION:
             await message.reply_text("❌ Registration is currently disabled.")
