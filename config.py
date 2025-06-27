@@ -1,69 +1,54 @@
 # Main configuration file
 
-# Mandatory Variables
-API_ID = 1111111 # Replace with your actual Telegram API ID
-API_HASH = "your_api_hash_here"  # Replace with your actual Telegram API Hash
-BOT_TOKEN = "your_bot_token_here"  # Replace with your actual Bot Token
-OWNER_ID = "11111111"  # Replace with your actual Owner ID
-# Database
-DATABASE_URL = "your_database_url_here"  # Replace with your actual database URL
+import os
 
-AUTH_CHAT = "-100123456789 -1001234567890" # Replace with your actual auth chat ID. You can use multiple IDs separated by ( space ).
-LOGS_CHAT = -1001234567891 # Replace with your actual logs chat ID
-POST_CHAT = -1001234567891 # Replace with your actual post chat ID
+# Mandatory Variables from Environment
+API_ID = int(os.environ.get("API_ID"))
+API_HASH = os.environ.get("API_HASH")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+OWNER_ID = os.environ.get("OWNER_ID")
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
-ADMIN_USERNAME = "admin" # Replace with your admin username
-ADMIN_PASSWORD = "adminadmin" # Replace with your admin password
+AUTH_CHAT = os.environ.get("AUTH_CHAT")  # Space-separated chat IDs
+LOGS_CHAT = int(os.environ.get("LOGS_CHAT"))
+POST_CHAT = int(os.environ.get("POST_CHAT"))
 
-SITE_SECRET = "your_secret_key" # Replace with your site secret key
-TMDB_API_KEY = "" # Replace with your TMDB API key
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
 
-SITE_NAME = "reelnn"
-POST_CHAT_LINK = "https://t.me/reelnnUpdates"
-ENABLE_REGISTRATION = False
-SIGNUP_IMAGE = "https://i.ibb.co/dJ2t5bsF/anime-AI-1.jpg"
-SIGNUP_MESSAGE = """
-**Heyaa** 🙋🏻‍♀️\n
-**Welcome to reelnn!** 🎬 
-Your ultimate destination for entertainment!
+SITE_SECRET = os.environ.get("SITE_SECRET")
+TMDB_API_KEY = os.environ.get("TMDB_API_KEY")
+
+SITE_NAME = os.environ.get("SITE_NAME", "7 CINEMA")
+POST_CHAT_LINK = os.environ.get("POST_CHAT_LINK", "https://t.me/bots_7_bots")
+ENABLE_REGISTRATION = os.environ.get("ENABLE_REGISTRATION", "True")
+SIGNUP_IMAGE = os.environ.get("SIGNUP_IMAGE", "https://raw.githubusercontent.com/svnig7/svnig7/refs/heads/main/cinemabotl.png")
+SIGNUP_MESSAGE = os.environ.get("SIGNUP_MESSAGE", """
+**Hey** 🙋🏻‍♀️\n
+**Welcome to 7 Cinema !** 🎬
+
+Your ultimate destination for entertainment !
 To get started and access our media library,
 please register your account.
 
 👉 Use the /register command to sign up for the site.
-"""
-
+""")
 
 # Optional Variables
-
-# If you want to use multiple bot tokens, uncomment the MULTI_TOKENS dictionary and add your tokens. this aditional bots will speed up the process of downloading and streaming files.
+# Uncomment and define these in your environment if needed
 MULTI_TOKENS = {
-    # 1: "BOT_TOKEN_1_HERE",
-    # 2: "BOT_TOKEN_2_HERE",
-    # Add more tokens as needed
+    # 1: os.environ.get("BOT_TOKEN_1"),
+    # 2: os.environ.get("BOT_TOKEN_2"),
+    # Add more as needed
 }
-DELETE_AFTER_MINUTES = 10 # Set the number of minutes after which files will be deleted from user message
-POST_UPDATES = True # Set to True if you want to post updates in the post chat
-USE_CAPTION = False # Set to True if you want to use captions for posts instead of file names.
+
+DELETE_AFTER_MINUTES = int(os.environ.get("DELETE_AFTER_MINUTES", 10))
+POST_UPDATES = os.environ.get("POST_UPDATES", "False")
+USE_CAPTION = os.environ.get("USE_CAPTION", "False")
 
 # Port configuration
-import os
-PORT = int(os.environ.get("PORT", 6519))
+PORT = int(os.environ.get("PORT", 8080))
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# (Don't touch this unless you know what you're doing)
-SUDO_USERS = [int(x) for x in (OWNER_ID).split()]
-AUTH_CHATS = [int(x) for x in (AUTH_CHAT).split()]
+# Internal Configuration (Do not change unless you know what you're doing)
+SUDO_USERS = [int(x) for x in OWNER_ID.split()]
+AUTH_CHATS = [int(x) for x in AUTH_CHAT.split()]
