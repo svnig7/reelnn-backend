@@ -61,7 +61,7 @@ async def register_command(client: Client, message: Message):
                 f"👤 **User ID:** `{result['user_id']}`\n"
                 f"📅 **Registration Date:** {result['registration_date'].strftime('%Y-%m-%d %H:%M:%S')}\n"
                 f"🎬 **Subscribed for:** {result['slimit']} days\n\n"
-                f"Welcome to reelnn! You can now access media files."
+                f"Welcome to 7 Cinema ! You can now access media files."
             )
 
             await send_info(
