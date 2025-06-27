@@ -96,8 +96,6 @@ async def login(username: str = Form(...), password: str = Form(...)):
 @app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
 async def get_index():
     """Serve the admin interface for managing trending content"""
-    if "HEAD" in app.router.get_route_handler("get_index").methods:
-        return HTMLResponse(content="")
     with open(templates_dir / "index.html") as f:
         return HTMLResponse(content=f.read())
 
