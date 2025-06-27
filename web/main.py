@@ -91,11 +91,13 @@ async def login(username: str = Form(...), password: str = Form(...)):
     if not token:
         raise HTTPException(status_code=401, detail="Invalid credentials")
     return {"access_token": token, "token_type": "bearer"}
+    
 
-
-@app.get("/", response_class=HTMLResponse)
+@app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
 async def get_index():
     """Serve the admin interface for managing trending content"""
+    if "HEAD" in app.router.get_route_handler("get_index").methods:
+        return HTMLResponse(content="")
     with open(templates_dir / "index.html") as f:
         return HTMLResponse(content=f.read())
 
