@@ -1,3 +1,42 @@
+import asyncio
+import functools
+from typing import Dict, Any, Optional, TypedDict
+from themoviedb import aioTMDb
+from app import LOGGER
+from utils.utils import get_official_trailer_url
+from config import TMDB_API_KEY
+
+tmdb = aioTMDb(key=TMDB_API_KEY, language="en-US", region="US")
+
+
+class TMDbResult(TypedDict):
+    """Type definition for TMDb API results"""
+
+    success: bool
+    data: Optional[Dict[str, Any]]
+    error: Optional[str]
+
+
+def async_lru_cache(maxsize=128, typed=False):
+    def decorator(fn):
+        _cache = {}
+
+        @functools.wraps(fn)
+        async def wrapper(*args, **kwargs):
+            key = str(args) + str(kwargs)
+            if key in _cache:
+                return _cache[key]
+            result = await fn(*args, **kwargs)
+            if len(_cache) >= maxsize:
+                _cache.pop(next(iter(_cache)))
+            _cache[key] = result
+            return result
+
+        return wrapper
+
+    return decorator
+
+
 async def fetch_movie_by_tmdb_id(movie_id: int) -> TMDbResult:
     """
     Fetch movie details from TMDb API using TMDB ID
