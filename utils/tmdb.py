@@ -451,14 +451,12 @@ async def fetch_movie_tmdb_data(title: str, year: Optional[int] = None) -> TMDbR
             
             if exact_match and exact_match["type"] == "movie":
                 LOGGER.info(f"Found exact match for IMDB ID {first_word}: {exact_match['id']}")
-                return await fetch_movie_by_tmdb_id(exact_match["id"])
-            else:
-                LOGGER.warning(f"No exact match found for IMDB ID {first_word}")
+                movie_result = await fetch_movie_by_tmdb_id(exact_match["id"])
                 
-                # Verify the found movie matches our expectations
-                if result['success']:
-                    movie_title = result['data'].get('title', '').lower()
-                    original_title = result['data'].get('original_title', '').lower()
+                # Additional verification if needed
+                if movie_result['success']:
+                    movie_title = movie_result['data'].get('title', '').lower()
+                    original_title = movie_result['data'].get('original_title', '').lower()
                     clean_filename = title.lower().replace(first_word, '')
                     
                     # Check if any word from filename appears in the title
@@ -466,9 +464,12 @@ async def fetch_movie_tmdb_data(title: str, year: Optional[int] = None) -> TMDbR
                     title_words = set(re.findall(r'\w+', movie_title + ' ' + original_title))
                     
                     if filename_words & title_words:  # If any words match
-                        return result
+                        return movie_result
                     LOGGER.warning(f"IMDB ID {first_word} returned non-matching movie: {movie_title}")
-
+                return movie_result
+            else:
+                LOGGER.warning(f"No exact match found for IMDB ID {first_word}")
+                
         # Try to parse as numeric TMDB ID if it starts with digits
         if title[:1].isdigit():
             possible_id = ''.join(c for c in title.split()[0] if c.isdigit())
@@ -550,6 +551,7 @@ async def fetch_movie_tmdb_data(title: str, year: Optional[int] = None) -> TMDbR
         return {"success": False, "data": None, "error": str(e)}
         
 @async_lru_cache(maxsize=100)
+@async_lru_cache(maxsize=100)
 async def fetch_tv_tmdb_data(
     identifier: str,
     season: Optional[int] = None,
@@ -568,17 +570,15 @@ async def fetch_tv_tmdb_data(
             
             if exact_match and exact_match["type"] == "tv":
                 LOGGER.info(f"Found exact match for IMDB ID {first_word}: {exact_match['id']}")
-                return await fetch_tv_by_tmdb_id(
+                tv_result = await fetch_tv_by_tmdb_id(
                     exact_match["id"],
                     season,
                     episode
                 )
-            else:
-                LOGGER.warning(f"No exact match found for IMDB ID {first_word}")
                 
-                # Verify the found show matches our expectations
-                if result['success']:
-                    show_title = result['data'].get('title', '').lower()
+                # Additional verification if needed
+                if tv_result['success']:
+                    show_title = tv_result['data'].get('title', '').lower()
                     clean_filename = identifier.lower().replace(first_word, '')
                     
                     # Check if any word from filename appears in the title
@@ -586,9 +586,12 @@ async def fetch_tv_tmdb_data(
                     title_words = set(re.findall(r'\w+', show_title))
                     
                     if filename_words & title_words:  # If any words match
-                        return result
+                        return tv_result
                     LOGGER.warning(f"IMDB ID {first_word} returned non-matching show: {show_title}")
-
+                return tv_result
+            else:
+                LOGGER.warning(f"No exact match found for IMDB ID {first_word}")
+                
         # Try to parse as numeric TMDB ID if not explicitly marked as ID
         if not is_id and identifier[:1].isdigit():
             possible_id = ''.join(c for c in identifier.split()[0] if c.isdigit())
