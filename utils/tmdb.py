@@ -424,7 +424,7 @@ async def fetch_movie_tmdb_data(title: str, year: Optional[int] = None) -> TMDbR
         if is_valid_imdb_id(first_word):
             find_result = await find_by_imdb_id(first_word)
             if find_result and find_result['type'] == 'movie':
-                result = await fetch_movie_by_tmdb_id(find_result['id'])
+                return await fetch_movie_by_tmdb_id(find_result['id'])
                 
                 # Verify the found movie matches our expectations
                 if result['success']:
@@ -545,7 +545,7 @@ async def fetch_tv_tmdb_data(
         if is_valid_imdb_id(first_word):
             find_result = await find_by_imdb_id(first_word)
             if find_result and find_result['type'] == 'tv':
-                result = await fetch_tv_by_tmdb_id(find_result['id'], season, episode)
+                return await fetch_tv_by_tmdb_id(find_result['id'], season, episode)
                 
                 # Verify the found show matches our expectations
                 if result['success']:
