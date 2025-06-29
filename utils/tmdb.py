@@ -389,13 +389,29 @@ async def fetch_movie_tmdb_data(title: str, year: Optional[int] = None) -> TMDbR
         Dictionary with movie data or error information
     """
     try:
-        search = await tmdb.search().movies(query=title, year=year)
+        # First try to parse as ID if it's numeric
+        if title[:1].isdigit():
+            # Try to extract just the numeric part
+            possible_id = ''.join(c for c in title.split()[0] if c.isdigit())
+            try:
+                # Try fetching as ID first
+                result = await fetch_movie_by_tmdb_id(int(possible_id))
+                if result["success"]:
+                    return result
+            except ValueError:
+                pass  # Not a valid ID, fall through to title search
+        
+        # Clean up the title by removing year and other metadata
+        clean_title = ' '.join([word for word in title.split() 
+                               if not word.isdigit() or len(word) != 4])
+        
+        search = await tmdb.search().movies(query=clean_title, year=year)
 
         if not search or not hasattr(search, "results") or len(search.results) == 0:
             return {
                 "success": False,
                 "data": None,
-                "error": f"No movie found for '{title}'",
+                "error": f"No movie found for '{clean_title}'",
             }
 
         movie_id = search.results[0].id
