@@ -1,5 +1,6 @@
 import asyncio
 import functools
+import re
 from typing import Dict, Any, Optional, TypedDict
 from themoviedb import aioTMDb
 from app import LOGGER
@@ -8,14 +9,11 @@ from config import TMDB_API_KEY
 
 tmdb = aioTMDb(key=TMDB_API_KEY, language="en-US", region="US")
 
-
 class TMDbResult(TypedDict):
     """Type definition for TMDb API results"""
-
     success: bool
     data: Optional[Dict[str, Any]]
     error: Optional[str]
-
 
 def async_lru_cache(maxsize=128, typed=False):
     def decorator(fn):
@@ -33,20 +31,43 @@ def async_lru_cache(maxsize=128, typed=False):
             return result
 
         return wrapper
-
     return decorator
 
+# ========================
+# COMMON HELPER FUNCTIONS
+# ========================
+
+async def _fetch_logos(media_type: str, media_id: int) -> str:
+    """Fetch logos for either movie or TV"""
+    try:
+        images = await getattr(tmdb, media_type)(media_id).images()
+        if hasattr(images, "logos") and images.logos:
+            en_logos = [logo for logo in images.logos if hasattr(logo, "iso_639_1") and logo.iso_639_1 == "en"]
+            in_logos = [logo for logo in images.logos if hasattr(logo, "iso_639_1") and logo.iso_639_1 == "in"]
+            return (
+                en_logos[0].file_path if en_logos
+                else in_logos[0].file_path if in_logos
+                else ""
+            )
+    except Exception as e:
+        LOGGER.warning(f"Error fetching logos for {media_type} {media_id}: {str(e)}")
+    return ""
+
+async def _fetch_external_ids(media_type: str, media_id: int) -> Dict[str, str]:
+    """Fetch external IDs for either movie or TV"""
+    try:
+        ids = await getattr(tmdb, media_type)(media_id).external_ids()
+        return {k: v for k, v in vars(ids).items() if not k.startswith('_') and v}
+    except Exception as e:
+        LOGGER.warning(f"Error fetching external IDs for {media_type} {media_id}: {str(e)}")
+    return {}
+
+# ========================
+# MOVIE-SPECIFIC FUNCTIONS
+# ========================
 
 async def fetch_movie_by_tmdb_id(movie_id: int) -> TMDbResult:
-    """
-    Fetch movie details from TMDb API using TMDB ID
-
-    Args:
-        movie_id: TMDB movie ID
-
-    Returns:
-        Dictionary with movie data or error information
-    """
+    """Fetch movie details by TMDB ID"""
     try:
         movie_data = {
             "mid": movie_id,
@@ -71,61 +92,161 @@ async def fetch_movie_by_tmdb_id(movie_id: int) -> TMDbResult:
 
         # Fetch basic details
         try:
-            movie_details = await tmdb.movie(movie_id).details()
-            movie_data["title"] = getattr(movie_details, "title", "")
-            movie_data["original_title"] = getattr(movie_details, "original_title", "")
-            movie_data["release_date"] = (
-                str(movie_details.release_date)
-                if hasattr(movie_details, "release_date") and movie_details.release_date
-                else None
-            )
-            movie_data["overview"] = getattr(movie_details, "overview", "")
-            movie_data["poster_path"] = getattr(movie_details, "poster_path", "") or ""
-            movie_data["backdrop_path"] = (
-                getattr(movie_details, "backdrop_path", "") or ""
-            )
-            movie_data["runtime"] = getattr(movie_details, "runtime", 0) or 0
-            movie_data["popularity"] = getattr(movie_details, "popularity", 0) or 0
-            movie_data["vote_average"] = getattr(movie_details, "vote_average", 0) or 0
-            movie_data["vote_count"] = getattr(movie_details, "vote_count", 0) or 0
-
-            # Genres
-            if hasattr(movie_details, "genres"):
-                movie_data["genres"] = [
-                    genre.name for genre in movie_details.genres if hasattr(genre, "name")
-                ]
-
-            # Production companies
-            production_companies = getattr(movie_details, "production_companies", [])
-            movie_data["studios"] = [
-                getattr(company, "name", "")
-                for company in production_companies
-                if hasattr(company, "name")
-            ]
+            details = await tmdb.movie(movie_id).details()
+            movie_data.update({
+                "title": getattr(details, "title", ""),
+                "original_title": getattr(details, "original_title", ""),
+                "release_date": str(details.release_date) if hasattr(details, "release_date") and details.release_date else None,
+                "overview": getattr(details, "overview", ""),
+                "poster_path": getattr(details, "poster_path", "") or "",
+                "backdrop_path": getattr(details, "backdrop_path", "") or "",
+                "runtime": getattr(details, "runtime", 0) or 0,
+                "popularity": getattr(details, "popularity", 0) or 0,
+                "vote_average": getattr(details, "vote_average", 0) or 0,
+                "vote_count": getattr(details, "vote_count", 0) or 0,
+                "genres": [genre.name for genre in getattr(details, "genres", []) if hasattr(genre, "name")],
+                "studios": [
+                    getattr(company, "name", "")
+                    for company in getattr(details, "production_companies", [])
+                    if hasattr(company, "name")
+                ],
+            })
         except Exception as e:
             LOGGER.warning(f"Error fetching movie details for ID {movie_id}: {str(e)}")
 
-        # Fetch additional data (logos, external IDs, cast, videos)
-        await _fetch_movie_additional_data(movie_id, movie_data)
+        # Fetch additional data
+        movie_data["logo"] = await _fetch_logos("movie", movie_id)
+        
+        external_ids = await _fetch_external_ids("movie", movie_id)
+        if external_ids.get("imdb_id"):
+            movie_data["links"].append(f"https://www.imdb.com/title/{external_ids['imdb_id']}")
+
+        try:
+            casts = await tmdb.movie(movie_id).credits()
+            if hasattr(casts, "cast"):
+                movie_data["cast"] = [
+                    {
+                        "name": getattr(actor, "name", ""),
+                        "imageUrl": getattr(actor, "profile_path", "") or "",
+                        "character": getattr(actor, "character", "") or "",
+                    }
+                    for actor in casts.cast[:20]
+                    if hasattr(actor, "name")
+                ]
+
+            if hasattr(casts, "crew"):
+                movie_data["directors"] = [
+                    getattr(member, "name", "")
+                    for member in casts.crew
+                    if hasattr(member, "job")
+                    and member.job == "Director"
+                    and hasattr(member, "name")
+                ]
+        except Exception as e:
+            LOGGER.warning(f"Error fetching cast/crew for movie ID {movie_id}: {str(e)}")
+
+        await asyncio.sleep(1)
+
+        try:
+            videos = await tmdb.movie(movie_id).videos()
+            movie_data["trailer"] = get_official_trailer_url(videos) or ""
+        except Exception as e:
+            LOGGER.warning(f"Error fetching videos for movie ID {movie_id}: {str(e)}")
 
         return {"success": True, "data": movie_data, "error": None}
     except Exception as e:
         LOGGER.error(f"Error fetching movie details for ID {movie_id}: {str(e)}")
         return {"success": False, "data": None, "error": f"TMDb API error: {str(e)}"}
 
-
-async def fetch_tv_by_tmdb_id(tv_id: int, season: Optional[int] = None, episode: Optional[int] = None) -> TMDbResult:
+def parse_movie_filename(filename: str) -> tuple:
     """
-    Fetch TV show details from TMDb API using TMDB ID
-
-    Args:
-        tv_id: TMDB TV show ID
-        season: Optional season number
-        episode: Optional episode number
-
-    Returns:
-        Dictionary with TV show data or error information
+    Parse movie filename to extract ID/title and year
+    
+    Returns tuple: (identifier, title, year, is_id)
     """
+    # Try ID + title + year pattern (e.g., "123456 Movie Title 2023")
+    match = re.match(r"^(\d+)\s+(.+?)\s+(\d{4})", filename)
+    if match:
+        return match.group(1), match.group(2), int(match.group(3)), True
+    
+    # Try title + year patterns
+    match = re.match(r"^(.+?)\s*\((\d{4})\)", filename)  # "Title (2023)"
+    if not match:
+        match = re.match(r"^(.+?)\s+(\d{4})", filename)  # "Title 2023"
+    if not match:
+        match = re.match(r"^(.+?)\.(\d{4})", filename)  # "Title.2023"
+    
+    if match:
+        title = match.group(1).replace('.', ' ').strip()
+        return None, title, int(match.group(2)), False
+    
+    # Try ID-only pattern
+    if filename.strip().isdigit():
+        return filename.strip(), None, None, True
+    
+    # Fallback to title only
+    return None, filename.strip(), None, False
+
+@async_lru_cache(maxsize=100)
+async def fetch_movie_tmdb_data(
+    identifier: Optional[str] = None,
+    title: Optional[str] = None,
+    year: Optional[int] = None
+) -> TMDbResult:
+    """Fetch movie data using either ID or title"""
+    try:
+        # Try ID first if available
+        if identifier:
+            try:
+                result = await fetch_movie_by_tmdb_id(int(identifier))
+                if result["success"]:
+                    return result
+                LOGGER.warning(f"ID {identifier} lookup failed, falling back to title search")
+            except ValueError:
+                pass  # Not a valid ID
+        
+        # Fall back to title search
+        if title:
+            search = await tmdb.search().movies(query=title, year=year)
+            
+            if not search or not hasattr(search, "results") or len(search.results) == 0:
+                return {
+                    "success": False,
+                    "data": None,
+                    "error": f"No movie found for '{title}'" + (f" ({year})" if year else ""),
+                }
+
+            movie_id = search.results[0].id
+            return await fetch_movie_by_tmdb_id(movie_id)
+        
+        return {
+            "success": False,
+            "data": None,
+            "error": "No valid identifier or title provided"
+        }
+    except Exception as e:
+        LOGGER.error(f"Error fetching movie details: {str(e)}")
+        return {"success": False, "data": None, "error": f"TMDb API error: {str(e)}"}
+
+async def process_movie_file(filename: str) -> TMDbResult:
+    """Complete movie filename processing pipeline"""
+    identifier, title, year, is_id = parse_movie_filename(filename)
+    return await fetch_movie_tmdb_data(
+        identifier=identifier,
+        title=title,
+        year=year
+    )
+
+# ======================
+# TV-SPECIFIC FUNCTIONS
+# ======================
+
+async def fetch_tv_by_tmdb_id(
+    tv_id: int, 
+    season: Optional[int] = None, 
+    episode: Optional[int] = None
+) -> TMDbResult:
+    """Fetch TV show details by TMDB ID"""
     try:
         tv_data = {
             "sid": tv_id,
@@ -154,47 +275,32 @@ async def fetch_tv_by_tmdb_id(tv_id: int, season: Optional[int] = None, episode:
 
         # Fetch basic details
         try:
-            tv_show_details = await tmdb.tv(tv_id).details()
-            tv_data["title"] = getattr(tv_show_details, "name", "")
-            tv_data["total_seasons"] = len(getattr(tv_show_details, "seasons", []))
-            tv_data["total_episodes"] = getattr(
-                tv_show_details, "number_of_episodes", 0
-            )
-            tv_data["status"] = getattr(tv_show_details, "status", "")
-            tv_data["original_title"] = getattr(tv_show_details, "original_name", "")
-            tv_data["creators"] = [
-                str(creator.name)
-                for creator in getattr(tv_show_details, "created_by", [])
-                if hasattr(creator, "name")
-            ]
-            tv_data["release_date"] = (
-                str(tv_show_details.first_air_date)
-                if hasattr(tv_show_details, "first_air_date")
-                and tv_show_details.first_air_date
-                else None
-            )
-            tv_data["overview"] = getattr(tv_show_details, "overview", "")
-            tv_data["poster_path"] = getattr(tv_show_details, "poster_path", "") or ""
-            tv_data["backdrop_path"] = (
-                getattr(tv_show_details, "backdrop_path", "") or ""
-            )
-            tv_data["popularity"] = getattr(tv_show_details, "popularity", 0)
-            tv_data["vote_average"] = getattr(tv_show_details, "vote_average", 0)
-            tv_data["vote_count"] = getattr(tv_show_details, "vote_count", 0)
-
-            # Genres
-            if hasattr(tv_show_details, "genres"):
-                tv_data["genres"] = [
-                    genre.name for genre in tv_show_details.genres if hasattr(genre, "name")
-                ]
-
-            # Production companies
-            production_companies = getattr(tv_show_details, "production_companies", [])
-            tv_data["studios"] = [
-                getattr(company, "name", "")
-                for company in production_companies
-                if hasattr(company, "name")
-            ]
+            details = await tmdb.tv(tv_id).details()
+            tv_data.update({
+                "title": getattr(details, "name", ""),
+                "total_seasons": len(getattr(details, "seasons", [])),
+                "total_episodes": getattr(details, "number_of_episodes", 0),
+                "status": getattr(details, "status", ""),
+                "original_title": getattr(details, "original_name", ""),
+                "creators": [
+                    str(creator.name)
+                    for creator in getattr(details, "created_by", [])
+                    if hasattr(creator, "name")
+                ],
+                "release_date": str(details.first_air_date) if hasattr(details, "first_air_date") and details.first_air_date else None,
+                "overview": getattr(details, "overview", ""),
+                "poster_path": getattr(details, "poster_path", "") or "",
+                "backdrop_path": getattr(details, "backdrop_path", "") or "",
+                "popularity": getattr(details, "popularity", 0),
+                "vote_average": getattr(details, "vote_average", 0),
+                "vote_count": getattr(details, "vote_count", 0),
+                "genres": [genre.name for genre in getattr(details, "genres", []) if hasattr(genre, "name")],
+                "studios": [
+                    getattr(company, "name", "")
+                    for company in getattr(details, "production_companies", [])
+                    if hasattr(company, "name")
+                ],
+            })
         except Exception as e:
             LOGGER.warning(f"Error fetching TV show details for ID {tv_id}: {str(e)}")
 
@@ -217,252 +323,135 @@ async def fetch_tv_by_tmdb_id(tv_id: int, season: Optional[int] = None, episode:
                 
                 try:
                     episode_details = await tmdb.episode(tv_id, season, episode).details()
-                    episode_data["name"] = getattr(episode_details, "name", "")
-                    episode_data["runtime"] = int(getattr(episode_details, "runtime", 0) or 0)
-                    episode_data["overview"] = getattr(episode_details, "overview", "")
-                    episode_data["still_path"] = (
-                        getattr(episode_details, "still_path", "") or ""
-                    )
-                    episode_data["air_date"] = (
-                        str(episode_details.air_date)
-                        if hasattr(episode_details, "air_date") and episode_details.air_date
-                        else None
-                    )
+                    episode_data.update({
+                        "name": getattr(episode_details, "name", ""),
+                        "runtime": int(getattr(episode_details, "runtime", 0) or 0),
+                        "overview": getattr(episode_details, "overview", ""),
+                        "still_path": getattr(episode_details, "still_path", "") or "",
+                        "air_date": str(episode_details.air_date) if hasattr(episode_details, "air_date") and episode_details.air_date else None,
+                    })
                     tv_data["still_path"] = episode_data["still_path"]
                 except Exception as e:
-                    LOGGER.warning(
-                        f"Error fetching episode details for ID {tv_id} S{season}E{episode}: {str(e)}"
-                    )
+                    LOGGER.warning(f"Error fetching episode details for ID {tv_id} S{season}E{episode}: {str(e)}")
                 
                 season_data["episodes"].append(episode_data)
             
             tv_data["season"].append(season_data)
 
-        # Fetch additional data (logos, external IDs, cast, videos)
-        await _fetch_tv_additional_data(tv_id, tv_data)
+        # Fetch additional data
+        tv_data["logo"] = await _fetch_logos("tv", tv_id)
+        
+        external_ids = await _fetch_external_ids("tv", tv_id)
+        if external_ids.get("imdb_id"):
+            tv_data["links"].append(f"https://www.imdb.com/title/{external_ids['imdb_id']}")
+
+        try:
+            casts = await tmdb.tv(tv_id).credits()
+            if hasattr(casts, "cast"):
+                tv_data["cast"] = [
+                    {
+                        "name": getattr(actor, "name", ""),
+                        "imageUrl": getattr(actor, "profile_path", ""),
+                        "character": getattr(actor, "character", ""),
+                    }
+                    for actor in casts.cast[:20]
+                    if hasattr(actor, "name")
+                ]
+        except Exception as e:
+            LOGGER.warning(f"Error fetching cast/crew for TV ID {tv_id}: {str(e)}")
+
+        await asyncio.sleep(1)
+
+        try:
+            videos = await tmdb.tv(tv_id).videos()
+            tv_data["trailer"] = get_official_trailer_url(videos)
+        except Exception as e:
+            LOGGER.warning(f"Error fetching videos for TV ID {tv_id}: {str(e)}")
 
         return {"success": True, "data": tv_data, "error": None}
     except Exception as e:
         LOGGER.error(f"Error fetching TV details for ID {tv_id}: {str(e)}")
         return {"success": False, "data": None, "error": f"TMDb API error: {str(e)}"}
 
-
-async def _fetch_movie_additional_data(movie_id: int, movie_data: Dict[str, Any]) -> None:
-    """Helper function to fetch additional movie data"""
-    try:
-        # Fetch logos
-        logos = await tmdb.movie(movie_id).images()
-        logo_path = ""
-        if hasattr(logos, "logos") and logos.logos:
-            en_logos = [
-                logo
-                for logo in logos.logos
-                if hasattr(logo, "iso_639_1") and logo.iso_639_1 == "en"
-            ]
-            in_logos = [
-                logo
-                for logo in logos.logos
-                if hasattr(logo, "iso_639_1") and logo.iso_639_1 == "in"
-            ]
-
-            if en_logos:
-                logo_path = en_logos[0].file_path
-            elif in_logos:
-                logo_path = in_logos[0].file_path
-
-        movie_data["logo"] = logo_path or ""
-    except Exception as e:
-        LOGGER.warning(f"Error fetching logos for movie ID {movie_id}: {str(e)}")
-
-    try:
-        # Fetch external IDs
-        movie_external_ids = await tmdb.movie(movie_id).external_ids()
-        if hasattr(movie_external_ids, "imdb_id") and movie_external_ids.imdb_id:
-            movie_data["links"].append(
-                f"https://www.imdb.com/title/{movie_external_ids.imdb_id}"
-            )
-    except Exception as e:
-        LOGGER.warning(f"Error fetching external IDs for movie ID {movie_id}: {str(e)}")
-
-    try:
-        # Fetch cast and crew
-        casts = await tmdb.movie(movie_id).credits()
-        if hasattr(casts, "cast"):
-            movie_data["cast"] = [
-                {
-                    "name": getattr(actor, "name", ""),
-                    "imageUrl": getattr(actor, "profile_path", "") or "",
-                    "character": getattr(actor, "character", "") or "",
-                }
-                for actor in casts.cast[:20]
-                if hasattr(actor, "name")
-            ]
-
-        if hasattr(casts, "crew"):
-            movie_data["directors"] = [
-                getattr(member, "name", "")
-                for member in casts.crew
-                if hasattr(member, "job")
-                and member.job == "Director"
-                and hasattr(member, "name")
-            ]
-    except Exception as e:
-        LOGGER.warning(f"Error fetching cast/crew for movie ID {movie_id}: {str(e)}")
-
-    await asyncio.sleep(2)
-
-    try:
-        # Fetch videos
-        videos = await tmdb.movie(movie_id).videos()
-        movie_data["trailer"] = get_official_trailer_url(videos) or ""
-    except Exception as e:
-        LOGGER.warning(f"Error fetching videos for movie ID {movie_id}: {str(e)}")
-
-
-async def _fetch_tv_additional_data(tv_id: int, tv_data: Dict[str, Any]) -> None:
-    """Helper function to fetch additional TV show data"""
-    try:
-        # Fetch logos
-        logos = await tmdb.tv(tv_id).images()
-        logo_path = ""
-        if hasattr(logos, "logos") and logos.logos:
-            en_logos = [
-                logo
-                for logo in logos.logos
-                if hasattr(logo, "iso_639_1") and logo.iso_639_1 == "en"
-            ]
-            in_logos = [
-                logo
-                for logo in logos.logos
-                if hasattr(logo, "iso_639_1") and logo.iso_639_1 == "in"
-            ]
-
-            if en_logos:
-                logo_path = en_logos[0].file_path
-            elif in_logos:
-                logo_path = in_logos[0].file_path
-
-        tv_data["logo"] = logo_path or ""
-    except Exception as e:
-        LOGGER.warning(f"Error fetching logos for TV ID {tv_id}: {str(e)}")
-
-    try:
-        # Fetch external IDs
-        tv_external_ids = await tmdb.tv(tv_id).external_ids()
-        if hasattr(tv_external_ids, "imdb_id") and tv_external_ids.imdb_id:
-            tv_data["links"].append(
-                f"https://www.imdb.com/title/{tv_external_ids.imdb_id}"
-            )
-    except Exception as e:
-        LOGGER.warning(f"Error fetching external IDs for TV ID {tv_id}: {str(e)}")
-
-    try:
-        # Fetch cast
-        casts = await tmdb.tv(tv_id).credits()
-        if hasattr(casts, "cast"):
-            tv_data["cast"] = [
-                {
-                    "name": getattr(actor, "name", ""),
-                    "imageUrl": getattr(actor, "profile_path", ""),
-                    "character": getattr(actor, "character", ""),
-                }
-                for actor in casts.cast[:20]
-                if hasattr(actor, "name")
-            ]
-    except Exception as e:
-        LOGGER.warning(f"Error fetching cast/crew for TV ID {tv_id}: {str(e)}")
-
-    await asyncio.sleep(1)
-
-    try:
-        # Fetch videos
-        videos = await tmdb.tv(tv_id).videos()
-        tv_data["trailer"] = get_official_trailer_url(videos)
-    except Exception as e:
-        LOGGER.warning(f"Error fetching videos for TV ID {tv_id}: {str(e)}")
-
-
-# Update the original functions to use the new helper functions
-@async_lru_cache(maxsize=100)
-async def fetch_movie_tmdb_data(title: str, year: Optional[int] = None) -> TMDbResult:
+def parse_tv_filename(filename: str) -> tuple:
     """
-    Fetch movie details from TMDb API
-
-    Args:
-        title: Movie title to search for
-        year: Optional release year for more accurate search
-
-    Returns:
-        Dictionary with movie data or error information
+    Parse TV show filename to extract ID/title, season, episode
+    
+    Returns tuple: (identifier, title, season, episode, is_id)
     """
-    try:
-        search = await tmdb.search().movies(query=title, year=year)
-
-        if not search or not hasattr(search, "results") or len(search.results) == 0:
-            return {
-                "success": False,
-                "data": None,
-                "error": f"No movie found for '{title}'",
-            }
-
-        movie_id = search.results[0].id
-        return await fetch_movie_by_tmdb_id(movie_id)
-    except Exception as e:
-        LOGGER.error(f"Error searching for movie '{title}': {str(e)}")
-        return {"success": False, "data": None, "error": f"Search error: {str(e)}"}
-
+    # Try ID + title pattern (e.g., "93352 The Family Man 2019 S01 E01")
+    match = re.match(r"^(\d+)\s+(.+?)\s+[sS](\d+)\s*[eE](\d+)", filename)
+    if match:
+        return match.group(1), match.group(2), int(match.group(3)), int(match.group(4)), True
+    
+    # Try ID-only pattern (e.g., "93352 S01 E01")
+    match = re.match(r"^(\d+)\s+[sS](\d+)\s*[eE](\d+)", filename)
+    if match:
+        return match.group(1), None, int(match.group(2)), int(match.group(3)), True
+    
+    # Try title-only patterns (e.g., "The.Family.Man.S01.E01")
+    match = re.match(r"^(.+?)[\s\.][sS](\d+)[\s\.]*[eE](\d+)", filename)
+    if match:
+        title = match.group(1).replace('.', ' ').strip()
+        return None, title, int(match.group(2)), int(match.group(3)), False
+    
+    return None, None, None, None, False
 
 async def fetch_tv_tmdb_data(
-    identifier: str, 
-    season: int, 
-    episode: int,
-    is_id: bool = False
+    identifier: Optional[str] = None,
+    title: Optional[str] = None,
+    season: Optional[int] = None,
+    episode: Optional[int] = None
 ) -> TMDbResult:
-    """
-    Fetch TV show details from TMDb API
-
-    Args:
-        identifier: Either TV show title or TMDB ID
-        season: Season number
-        episode: Episode number
-        is_id: Whether the identifier is a TMDB ID
-
-    Returns:
-        Dictionary with TV show data or error information
-    """
+    """Fetch TV show data using either ID or title"""
     try:
-        if is_id:
-            # Directly fetch by ID if we know it's an ID
-            return await fetch_tv_by_tmdb_id(int(identifier), season, episode)
-        else:
-            # Try to parse ID from filename if it starts with numbers
-            if identifier[:1].isdigit():
-                try:
-                    # Try fetching as ID first
-                    result = await fetch_tv_by_tmdb_id(int(identifier), season, episode)
-                    if result["success"]:
-                        return result
-                except ValueError:
-                    pass  # Not a valid ID, fall through to title search
+        # Try ID first if available
+        if identifier:
+            try:
+                result = await fetch_tv_by_tmdb_id(int(identifier), season, episode)
+                if result["success"]:
+                    return result
+                LOGGER.warning(f"ID {identifier} lookup failed, falling back to title search")
+            except ValueError:
+                pass  # Not a valid ID
+        
+        # Fall back to title search
+        if title:
+            tv_search = await tmdb.search().tv(query=title)
             
-            # Fall back to title search
-            tv_search = await tmdb.search().tv(query=identifier)
-
-            if (
-                not tv_search
-                or not hasattr(tv_search, "results")
-                or len(tv_search.results) == 0
-            ):
+            if not tv_search or not hasattr(tv_search, "results") or len(tv_search.results) == 0:
                 return {
                     "success": False,
                     "data": None,
-                    "error": f"No TV show found for '{identifier}'",
+                    "error": f"No TV show found for '{title}'",
                 }
 
             tv_show_id = tv_search.results[0].id
             return await fetch_tv_by_tmdb_id(tv_show_id, season, episode)
+        
+        return {
+            "success": False,
+            "data": None,
+            "error": "No valid identifier or title provided"
+        }
     except Exception as e:
-        LOGGER.error(
-            f"Error fetching TV details for '{identifier}' S{season}E{episode}: {str(e)}"
-        )
+        LOGGER.error(f"Error fetching TV details: {str(e)}")
         return {"success": False, "data": None, "error": f"TMDb API error: {str(e)}"}
+
+async def process_tv_file(filename: str) -> TMDbResult:
+    """Complete TV show filename processing pipeline"""
+    identifier, title, season, episode, is_id = parse_tv_filename(filename)
+    
+    if season is None or episode is None:
+        return {
+            "success": False,
+            "data": None,
+            "error": f"Could not parse season/episode from filename: {filename}"
+        }
+    
+    return await fetch_tv_tmdb_data(
+        identifier=identifier,
+        title=title,
+        season=season,
+        episode=episode
+    )
