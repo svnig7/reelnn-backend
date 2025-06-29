@@ -482,8 +482,8 @@ async def fetch_movie_tmdb_data(title: str, year: Optional[int] = None) -> TMDbR
             original_title = getattr(result, 'original_title', '').lower()
             
             # Check if cleaned title is contained in either title
-            if (any(word in result_title for word in clean_lower.split()) or \
-               (any(word in original_title for word in clean_lower.split())):
+            if (any(word in result_title for word in clean_lower.split()) or 
+               any(word in original_title for word in clean_lower.split())):
                 movie_id = result.id
                 return await fetch_movie_by_tmdb_id(movie_id)
         
@@ -495,7 +495,7 @@ async def fetch_movie_tmdb_data(title: str, year: Optional[int] = None) -> TMDbR
     except Exception as e:
         LOGGER.error(f"Error searching for movie '{title}': {str(e)}")
         return {"success": False, "data": None, "error": f"Search error: {str(e)}"}
-        
+
 @async_lru_cache(maxsize=100)
 async def fetch_tv_tmdb_data(
     identifier: str, 
