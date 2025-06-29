@@ -38,45 +38,62 @@ def is_valid_imdb_id(imdb_id: str) -> bool:
     """Check if a string is a valid IMDB ID (tt followed by 7+ digits)"""
     return bool(re.fullmatch(r'tt\d{7,}', imdb_id))
 
-async def find_by_imdb_id(imdb_id: str) -> Optional[Dict[str, Any]]:
+async def get_exact_tmdb_match(imdb_id: str) -> Optional[Dict[str, Any]]:
     """
-    Directly find TMDB entry by IMDB ID using the exact API endpoint
-    Returns the first matching movie or TV result
+    Get EXACT TMDB match for an IMDB ID with 100% accuracy
+    Returns either the movie or TV show that exactly matches the IMDB ID
     """
     if not is_valid_imdb_id(imdb_id):
         return None
-        
+
     try:
-        # Make direct API call to the exact endpoint
-        response = await tmdb._request(
+        # Step 1: Get the official TMDB find result
+        find_result = await tmdb._request(
             "GET",
             f"find/{imdb_id}",
             params={"external_source": "imdb_id"}
         )
-        
-        if response:
-            # Return first movie result if exists
-            if response.get("movie_results"):
-                return {
-                    "type": "movie",
-                    "id": response["movie_results"][0]["id"],
-                    "title": response["movie_results"][0].get("title"),
-                    "original_title": response["movie_results"][0].get("original_title"),
-                    "raw_response": response
-                }
-            # Return first TV result if exists
-            if response.get("tv_results"):
-                return {
-                    "type": "tv",
-                    "id": response["tv_results"][0]["id"],
-                    "title": response["tv_results"][0].get("name"),
-                    "original_title": response["tv_results"][0].get("original_name"),
-                    "raw_response": response
-                }
-            
+
+        if not find_result:
+            return None
+
+        # Step 2: Verify we have exactly one match
+        if find_result.get("movie_results"):
+            if len(find_result["movie_results"]) == 1:
+                movie = find_result["movie_results"][0]
+                # Step 3: Cross-verify with the movie details
+                movie_details = await tmdb._request(
+                    "GET",
+                    f"movie/{movie['id']}/external_ids"
+                )
+                if movie_details and movie_details.get("imdb_id") == imdb_id:
+                    return {
+                        "type": "movie",
+                        "id": movie["id"],
+                        "confirmed": True,
+                        "data": movie
+                    }
+
+        if find_result.get("tv_results"):
+            if len(find_result["tv_results"]) == 1:
+                tv = find_result["tv_results"][0]
+                # Step 3: Cross-verify with the TV details
+                tv_details = await tmdb._request(
+                    "GET",
+                    f"tv/{tv['id']}/external_ids"
+                )
+                if tv_details and tv_details.get("imdb_id") == imdb_id:
+                    return {
+                        "type": "tv",
+                        "id": tv["id"],
+                        "confirmed": True,
+                        "data": tv
+                    }
+
         return None
+
     except Exception as e:
-        LOGGER.warning(f"Error finding by IMDB ID {imdb_id}: {str(e)}")
+        LOGGER.error(f"Error getting exact match for IMDB ID {imdb_id}: {str(e)}")
         return None
 
 async def fetch_movie_by_tmdb_id(movie_id: int) -> TMDbResult:
@@ -423,26 +440,20 @@ async def _fetch_tv_additional_data(tv_id: int, tv_data: Dict[str, Any]) -> None
 @async_lru_cache(maxsize=100)
 async def fetch_movie_tmdb_data(title: str, year: Optional[int] = None) -> TMDbResult:
     """
-    Fetch movie details from TMDb API with improved IMDB ID and filename handling
-
-    Args:
-        title: Movie title or filename (may contain IMDB ID tt..., year, quality tags)
-        year: Optional release year for more accurate search
-
-    Returns:
-        Dictionary with movie data or error information
+    Fetch movie details with guaranteed IMDB ID matching
     """
     try:
-        # First try exact IMDB ID match if present
+        # Extract first word that could be an IMDB ID
         first_word = title.split()[0] if title else ""
+        
         if is_valid_imdb_id(first_word):
-            find_result = await find_by_imdb_id(first_word)
-            if find_result and find_result['type'] == 'movie':
-                # Verify we got the correct movie by comparing titles
-                if (find_result.get('title', '').lower() in title.lower() or 
-                    find_result.get('original_title', '').lower() in title.lower()):
-                    return await fetch_movie_by_tmdb_id(find_result['id'])
-                LOGGER.warning(f"IMDB ID {first_word} returned non-matching movie")
+            exact_match = await get_exact_tmdb_match(first_word)
+            
+            if exact_match and exact_match["type"] == "movie":
+                LOGGER.info(f"Found exact match for IMDB ID {first_word}: {exact_match['id']}")
+                return await fetch_movie_by_tmdb_id(exact_match["id"])
+            else:
+                LOGGER.warning(f"No exact match found for IMDB ID {first_word}")
                 
                 # Verify the found movie matches our expectations
                 if result['success']:
@@ -535,43 +546,35 @@ async def fetch_movie_tmdb_data(title: str, year: Optional[int] = None) -> TMDbR
         return await fetch_movie_by_tmdb_id(movie_id)
         
     except Exception as e:
-        LOGGER.error(f"Error searching for movie '{title}': {str(e)}")
-        return {"success": False, "data": None, "error": f"Search error: {str(e)}"}
-
+        LOGGER.error(f"Error in fetch_movie_tmdb_data: {str(e)}")
+        return {"success": False, "data": None, "error": str(e)}
+        
 @async_lru_cache(maxsize=100)
 async def fetch_tv_tmdb_data(
-    identifier: str, 
-    season: Optional[int] = None, 
+    identifier: str,
+    season: Optional[int] = None,
     episode: Optional[int] = None,
     is_id: bool = False
 ) -> TMDbResult:
     """
-    Fetch TV show details from TMDb API
-
-    Args:
-        identifier: TV show title, TMDB ID, or IMDB ID (starting with 'tt')
-        season: Optional season number
-        episode: Optional episode number
-        is_id: Whether the identifier is a TMDB ID
-
-    Returns:
-        Dictionary with TV show data or error information
+    Fetch TV show details with guaranteed IMDB ID matching
     """
     try:
-        # First try exact IMDB ID match if present
+        # Extract first word that could be an IMDB ID
         first_word = identifier.split()[0] if identifier else ""
+        
         if is_valid_imdb_id(first_word):
-            find_result = await find_by_imdb_id(first_word)
-            if find_result and find_result['type'] == 'tv':
-                # Verify we got the correct show by comparing titles
-                if (find_result.get('title', '').lower() in identifier.lower() or 
-                    find_result.get('original_title', '').lower() in identifier.lower()):
-                    return await fetch_tv_by_tmdb_id(
-                        find_result['id'],
-                        season,
-                        episode
-                    )
-                LOGGER.warning(f"IMDB ID {first_word} returned non-matching TV show")
+            exact_match = await get_exact_tmdb_match(first_word)
+            
+            if exact_match and exact_match["type"] == "tv":
+                LOGGER.info(f"Found exact match for IMDB ID {first_word}: {exact_match['id']}")
+                return await fetch_tv_by_tmdb_id(
+                    exact_match["id"],
+                    season,
+                    episode
+                )
+            else:
+                LOGGER.warning(f"No exact match found for IMDB ID {first_word}")
                 
                 # Verify the found show matches our expectations
                 if result['success']:
@@ -655,5 +658,5 @@ async def fetch_tv_tmdb_data(
         return await fetch_tv_by_tmdb_id(tv_show_id, season, episode)
         
     except Exception as e:
-        LOGGER.error(f"Error fetching TV details: {str(e)}")
-        return {"success": False, "data": None, "error": f"TMDb API error: {str(e)}"}
+        LOGGER.error(f"Error in fetch_tv_tmdb_data: {str(e)}")
+        return {"success": False, "data": None, "error": str(e)}
