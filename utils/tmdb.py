@@ -8,14 +8,12 @@ from config import TMDB_API_KEY
 
 tmdb = aioTMDb(key=TMDB_API_KEY, language="en-US", region="US")
 
-
 class TMDbResult(TypedDict):
     """Type definition for TMDb API results"""
 
     success: bool
     data: Optional[Dict[str, Any]]
     error: Optional[str]
-
 
 def async_lru_cache(maxsize=128, typed=False):
     def decorator(fn):
@@ -35,7 +33,6 @@ def async_lru_cache(maxsize=128, typed=False):
         return wrapper
 
     return decorator
-
 
 async def fetch_movie_by_tmdb_id(movie_id: int) -> TMDbResult:
     """
@@ -112,7 +109,6 @@ async def fetch_movie_by_tmdb_id(movie_id: int) -> TMDbResult:
     except Exception as e:
         LOGGER.error(f"Error fetching movie details for ID {movie_id}: {str(e)}")
         return {"success": False, "data": None, "error": f"TMDb API error: {str(e)}"}
-
 
 async def fetch_tv_by_tmdb_id(tv_id: int, season: Optional[int] = None, episode: Optional[int] = None) -> TMDbResult:
     """
@@ -246,7 +242,6 @@ async def fetch_tv_by_tmdb_id(tv_id: int, season: Optional[int] = None, episode:
         LOGGER.error(f"Error fetching TV details for ID {tv_id}: {str(e)}")
         return {"success": False, "data": None, "error": f"TMDb API error: {str(e)}"}
 
-
 async def _fetch_movie_additional_data(movie_id: int, movie_data: Dict[str, Any]) -> None:
     """Helper function to fetch additional movie data"""
     try:
@@ -318,7 +313,6 @@ async def _fetch_movie_additional_data(movie_id: int, movie_data: Dict[str, Any]
     except Exception as e:
         LOGGER.warning(f"Error fetching videos for movie ID {movie_id}: {str(e)}")
 
-
 async def _fetch_tv_additional_data(tv_id: int, tv_data: Dict[str, Any]) -> None:
     """Helper function to fetch additional TV show data"""
     try:
@@ -381,7 +375,6 @@ async def _fetch_tv_additional_data(tv_id: int, tv_data: Dict[str, Any]) -> None
     except Exception as e:
         LOGGER.warning(f"Error fetching videos for TV ID {tv_id}: {str(e)}")
 
-
 # Update the original functions to use the new helper functions
 @async_lru_cache(maxsize=100)
 async def fetch_movie_tmdb_data(title: str, year: Optional[int] = None) -> TMDbResult:
@@ -411,7 +404,6 @@ async def fetch_movie_tmdb_data(title: str, year: Optional[int] = None) -> TMDbR
         LOGGER.error(f"Error searching for movie '{title}': {str(e)}")
         return {"success": False, "data": None, "error": f"Search error: {str(e)}"}
 
-
 async def fetch_tv_tmdb_data(
     identifier: str, 
     season: int, 
@@ -431,22 +423,28 @@ async def fetch_tv_tmdb_data(
         Dictionary with TV show data or error information
     """
     try:
+        # First try to parse as ID if it's numeric
+        if not is_id and identifier[:1].isdigit():
+            # Try to extract just the numeric part
+            possible_id = ''.join(c for c in identifier.split()[0] if c.isdigit())
+            try:
+                # Try fetching as ID first
+                result = await fetch_tv_by_tmdb_id(int(possible_id), season, episode)
+                if result["success"]:
+                    return result
+            except ValueError:
+                pass  # Not a valid ID, fall through to title search
+        
         if is_id:
             # Directly fetch by ID if we know it's an ID
             return await fetch_tv_by_tmdb_id(int(identifier), season, episode)
         else:
-            # Try to parse ID from filename if it starts with numbers
-            if identifier[:1].isdigit():
-                try:
-                    # Try fetching as ID first
-                    result = await fetch_tv_by_tmdb_id(int(identifier), season, episode)
-                    if result["success"]:
-                        return result
-                except ValueError:
-                    pass  # Not a valid ID, fall through to title search
+            # Clean up the title by removing year and other metadata
+            clean_title = ' '.join([word for word in identifier.split() 
+                                   if not word.isdigit() or len(word) != 4])
             
             # Fall back to title search
-            tv_search = await tmdb.search().tv(query=identifier)
+            tv_search = await tmdb.search().tv(query=clean_title)
 
             if (
                 not tv_search
@@ -456,7 +454,7 @@ async def fetch_tv_tmdb_data(
                 return {
                     "success": False,
                     "data": None,
-                    "error": f"No TV show found for '{identifier}'",
+                    "error": f"No TV show found for '{clean_title}'",
                 }
 
             tv_show_id = tv_search.results[0].id
