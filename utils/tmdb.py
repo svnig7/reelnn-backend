@@ -412,36 +412,57 @@ async def fetch_movie_tmdb_data(title: str, year: Optional[int] = None) -> TMDbR
         return {"success": False, "data": None, "error": f"Search error: {str(e)}"}
 
 
-async def fetch_tv_tmdb_data(title: str, season: int, episode: int) -> TMDbResult:
+async def fetch_tv_tmdb_data(
+    identifier: str, 
+    season: int, 
+    episode: int,
+    is_id: bool = False
+) -> TMDbResult:
     """
     Fetch TV show details from TMDb API
 
     Args:
-        title: TV show title to search for
+        identifier: Either TV show title or TMDB ID
         season: Season number
         episode: Episode number
+        is_id: Whether the identifier is a TMDB ID
 
     Returns:
         Dictionary with TV show data or error information
     """
     try:
-        tv_search = await tmdb.search().tv(query=title)
+        if is_id:
+            # Directly fetch by ID if we know it's an ID
+            return await fetch_tv_by_tmdb_id(int(identifier), season, episode)
+        else:
+            # Try to parse ID from filename if it starts with numbers
+            if identifier[:1].isdigit():
+                try:
+                    # Try fetching as ID first
+                    result = await fetch_tv_by_tmdb_id(int(identifier), season, episode)
+                    if result["success"]:
+                        return result
+                except ValueError:
+                    pass  # Not a valid ID, fall through to title search
+            
+            # Fall back to title search
+            tv_search = await tmdb.search().tv(query=identifier)
 
-        if (
-            not tv_search
-            or not hasattr(tv_search, "results")
-            or len(tv_search.results) == 0
-        ):
-            return {
-                "success": False,
-                "data": None,
-                "error": f"No TV show found for '{title}'",
-            }
+            if (
+                not tv_search
+                or not hasattr(tv_search, "results")
+                or len(tv_search.results) == 0
+            ):
+                return {
+                    "success": False,
+                    "data": None,
+                    "error": f"No TV show found for '{identifier}'",
+                }
 
-        tv_show_id = tv_search.results[0].id
-        return await fetch_tv_by_tmdb_id(tv_show_id, season, episode)
+            tv_show_id = tv_search.results[0].id
+            return await fetch_tv_by_tmdb_id(tv_show_id, season, episode)
     except Exception as e:
         LOGGER.error(
-            f"Error fetching TV details for '{title}' S{season}E{episode}: {str(e)}"
+            f"Error fetching TV details for '{identifier}' S{season}E{episode}: {str(e)}"
         )
         return {"success": False, "data": None, "error": f"TMDb API error: {str(e)}"}
