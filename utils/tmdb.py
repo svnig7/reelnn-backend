@@ -40,33 +40,38 @@ def is_valid_imdb_id(imdb_id: str) -> bool:
 
 async def find_by_imdb_id(imdb_id: str) -> Optional[Dict[str, Any]]:
     """
-    Find TMDB entry by IMDB ID with direct API response matching
-    Returns the first matching movie or TV result exactly as returned by the API
+    Directly find TMDB entry by IMDB ID using the exact API endpoint
+    Returns the first matching movie or TV result
     """
     if not is_valid_imdb_id(imdb_id):
         return None
         
     try:
-        # Make direct API call to match the examples you provided
-        find_result = await tmdb._get(
+        # Make direct API call to the exact endpoint
+        response = await tmdb._request(
+            "GET",
             f"find/{imdb_id}",
             params={"external_source": "imdb_id"}
         )
         
-        if find_result:
+        if response:
             # Return first movie result if exists
-            if find_result.get("movie_results"):
+            if response.get("movie_results"):
                 return {
                     "type": "movie",
-                    "data": find_result["movie_results"][0],
-                    "raw_response": find_result
+                    "id": response["movie_results"][0]["id"],
+                    "title": response["movie_results"][0].get("title"),
+                    "original_title": response["movie_results"][0].get("original_title"),
+                    "raw_response": response
                 }
             # Return first TV result if exists
-            if find_result.get("tv_results"):
+            if response.get("tv_results"):
                 return {
-                    "type": "tv", 
-                    "data": find_result["tv_results"][0],
-                    "raw_response": find_result
+                    "type": "tv",
+                    "id": response["tv_results"][0]["id"],
+                    "title": response["tv_results"][0].get("name"),
+                    "original_title": response["tv_results"][0].get("original_name"),
+                    "raw_response": response
                 }
             
         return None
@@ -433,8 +438,11 @@ async def fetch_movie_tmdb_data(title: str, year: Optional[int] = None) -> TMDbR
         if is_valid_imdb_id(first_word):
             find_result = await find_by_imdb_id(first_word)
             if find_result and find_result['type'] == 'movie':
-                # Use the ID from the find result to get full details
-                return await fetch_movie_by_tmdb_id(find_result['data']['id'])
+                # Verify we got the correct movie by comparing titles
+                if (find_result.get('title', '').lower() in title.lower() or 
+                    find_result.get('original_title', '').lower() in title.lower()):
+                    return await fetch_movie_by_tmdb_id(find_result['id'])
+                LOGGER.warning(f"IMDB ID {first_word} returned non-matching movie")
                 
                 # Verify the found movie matches our expectations
                 if result['success']:
@@ -555,12 +563,15 @@ async def fetch_tv_tmdb_data(
         if is_valid_imdb_id(first_word):
             find_result = await find_by_imdb_id(first_word)
             if find_result and find_result['type'] == 'tv':
-                # Use the ID from the find result to get full details
-                return await fetch_tv_by_tmdb_id(
-                    find_result['data']['id'], 
-                    season, 
-                    episode
-                )
+                # Verify we got the correct show by comparing titles
+                if (find_result.get('title', '').lower() in identifier.lower() or 
+                    find_result.get('original_title', '').lower() in identifier.lower()):
+                    return await fetch_tv_by_tmdb_id(
+                        find_result['id'],
+                        season,
+                        episode
+                    )
+                LOGGER.warning(f"IMDB ID {first_word} returned non-matching TV show")
                 
                 # Verify the found show matches our expectations
                 if result['success']:
