@@ -55,105 +55,46 @@ async def get_movie_details(title: str, client: Client, year: Optional[int], mes
         return {"success": False, "error": f"Failed to process movie data: {str(e)}", "data": None, "_type": None}
 
 async def get_tv_details(title: str, client: Client, season: int, episode: int, message: Message) -> ContentResult:
-    """Fetch and process TV show details from TMDb API with robust error handling"""
+    """Fetch and process TV show details from TMDb API"""
     try:
-        # Fetch data from TMDb
+        
         tmdb_result = await fetch_tv_tmdb_data(title, season, episode)
         
         if not tmdb_result["success"]:
-            return {
-                "success": False, 
-                "error": tmdb_result["error"], 
-                "data": None, 
-                "_type": None
-            }
+            return {"success": False, "error": tmdb_result["error"], "data": None, "_type": None}
         
-        # Get media quality info
+        
         quality_type, media_info = await media_quality(client, message)
         
-        # Get file details
+        
         file = message.video or message.document or message.animation
         tv_dict = tmdb_result["data"].copy()
         
-        # Ensure season data exists
-        if not tv_dict.get("season"):
-            tv_dict["season"] = []
         
-        # Find or create the season
-        season_data = next(
-            (s for s in tv_dict["season"] if s.get("season_number") == season),
-            None
-        )
-        
-        if not season_data:
-            season_data = {
-                "season_number": season,
-                "episodes": []
-            }
-            tv_dict["season"].append(season_data)
-        
-        # Ensure episodes list exists
-        if not season_data.get("episodes"):
-            season_data["episodes"] = []
-        
-        # Find or create the episode
-        episode_data = next(
-            (e for e in season_data["episodes"] if e.get("episode_number") == episode),
-            None
-        )
-        
-        if not episode_data:
-            episode_data = {
-                "episode_number": episode,
-                "name": "Unknown",
-                "runtime": 0,
-                "overview": "",
-                "still_path": "",
-                "air_date": None
-            }
-            season_data["episodes"].append(episode_data)
-        
-        # Add quality info
-        episode_data["quality"] = [{
+        tv_dict["season"][0]["episodes"][0]["quality"] = [{
             "type": quality_type,
             "file_hash": file.file_unique_id[:6],
             "msg_id": message.id,
             "chat_id": message.chat.id,
             "size": get_readable_file_size(file.file_size),
-            "audio": media_info.get("audio", "N/A"),
-            "video_codec": media_info.get("video_codec", "N/A"),
-            "file_type": media_info.get("file_type", "N/A"),
-            "subtitle": media_info.get("subtitle", "N/A"),
-            "runtime": episode_data.get("runtime", 0)
+            "audio": media_info["audio"] if media_info["audio"] else "N/A",
+            "video_codec": media_info["video_codec"] if media_info["video_codec"] else "N/A",
+            "file_type": media_info["file_type"] if media_info["file_type"] else "N/A",
+            "subtitle": media_info["subtitle"] if media_info["subtitle"] else "N/A",
+            "runtime": tv_dict["season"][0]["episodes"][0]["runtime"],
         }]
         
-        # Validate with schema
         try:
             validated_show = ShowSchema(**tv_dict)
             validated_data = validated_show.model_dump()
-            return {
-                "success": True, 
-                "data": validated_data, 
-                "_type": "show", 
-                "error": None
-            }
+            return {"success": True, "data": validated_data, "_type": "show", "error": None}
         except Exception as validation_error:
             LOGGER.error(f"Schema validation error: {str(validation_error)}")
-            return {
-                "success": False, 
-                "error": f"Data validation failed: {str(validation_error)}", 
-                "data": None, 
-                "_type": None
-            }
-            
+            return {"success": False, "error": f"Data validation failed: {str(validation_error)}", 
+                    "data": None, "_type": None}
     except Exception as e:
-        LOGGER.error(f"Error in get_tv_details: {str(e)}", exc_info=True)
-        return {
-            "success": False, 
-            "error": f"Failed to process TV data: {str(e)}", 
-            "data": None, 
-            "_type": None
-        }
+        LOGGER.error(f"Error in get_tv_details: {str(e)}")
+        return {"success": False, "error": f"Failed to process TV data: {str(e)}", "data": None, "_type": None}
 
 async def get_content_details(mtitle: str, client: Client, message: Message) -> ContentResult:
     """Parse media filename and fetch detailed information from TMDb."""
