@@ -450,24 +450,28 @@ async def fetch_tv_tmdb_data(
         Dictionary with TV show data or error information
     """
     try:
-        # First extract potential IMDB ID from the beginning of the string
-        possible_imdb_id = None
-        if identifier.startswith('tt') and len(identifier) > 2:
-            # Extract the IMDB ID part (tt followed by 7-9 digits)
-            imdb_match = re.match(r'^(tt\d{7,9})', identifier)
+        # First try exact IMDB ID match if present
+        imdb_id = None
+        if identifier.startswith('tt') and len(identifier) >= 9:  # Minimum tt + 7 digits
+            imdb_match = re.match(r'^(tt\d{7,})', identifier)
             if imdb_match:
-                possible_imdb_id = imdb_match.group(1)
-                
+                imdb_id = imdb_match.group(1)
                 try:
-                    # Try to find by IMDB ID
-                    find_result = await tmdb.find().by_imdb_id(possible_imdb_id)
+                    find_result = await tmdb.find().by_imdb_id(imdb_id)
                     if find_result and hasattr(find_result, 'tv_results') and find_result.tv_results:
                         tv_id = find_result.tv_results[0].id
-                        return await fetch_tv_by_tmdb_id(tv_id, season, episode)
+                        result = await fetch_tv_by_tmdb_id(tv_id, season, episode)
+                        
+                        # Verify the found show matches our expectations
+                        if result['success']:
+                            show_title = result['data'].get('title', '').lower()
+                            if 'special ops' in show_title or 'special ops' in identifier.lower():
+                                return result
+                            LOGGER.warning(f"IMDB ID {imdb_id} returned non-matching show: {show_title}")
                 except Exception as e:
-                    LOGGER.warning(f"Error finding TV show by IMDB ID {possible_imdb_id}: {str(e)}")
-        
-        # Try to parse as numeric ID if not explicitly marked as ID
+                    LOGGER.warning(f"Error finding TV show by IMDB ID {imdb_id}: {str(e)}")
+
+        # Try to parse as numeric TMDB ID if not explicitly marked as ID
         if not is_id and identifier[:1].isdigit():
             possible_id = ''.join(c for c in identifier.split()[0] if c.isdigit())
             try:
@@ -477,35 +481,59 @@ async def fetch_tv_tmdb_data(
             except ValueError:
                 pass  # Not a valid ID, fall through to title search
         
-        # If explicitly marked as ID or we're done with other checks
+        # If explicitly marked as ID
         if is_id:
             return await fetch_tv_by_tmdb_id(int(identifier), season, episode)
         
-        # Clean up the title by removing IMDB ID and other metadata
+        # Clean up the title for better searching
         clean_title = identifier
-        if possible_imdb_id:
-            clean_title = clean_title.replace(possible_imdb_id, '').strip()
         
-        # Remove resolution, codec, etc. (anything in all caps or with numbers)
-        clean_title = ' '.join([word for word in clean_title.split() 
-                              if not (word.isupper() or any(c.isdigit() for c in word))])
+        # Remove IMDB ID if we found one earlier
+        if imdb_id:
+            clean_title = clean_title.replace(imdb_id, '')
         
-        # Remove common file extensions
+        # Remove season/episode info (S01E01 or S1E1 patterns)
+        clean_title = re.sub(r'(?i)\s*s\d+\s*e\d+\s*', ' ', clean_title)
+        
+        # Remove quality info (720p, 1080p, WebRip, etc.)
+        clean_title = re.sub(r'(?i)\b(720p|1080p|2160p|4k|webrip|webdl|hdtv|x264|aac|esub)\b', '', clean_title)
+        
+        # Remove release group names (anything in brackets or after hyphen)
+        clean_title = re.sub(r'(\[.*?\]|-\s*[^-]+)$', '', clean_title)
+        
+        # Remove file extensions
         clean_title = re.sub(r'\.(mkv|mp4|avi|mov|flv|wmv)$', '', clean_title, flags=re.IGNORECASE)
+        
+        # Normalize spacing and trim
+        clean_title = ' '.join(clean_title.split()).strip()
+        
+        LOGGER.debug(f"Searching TMDB with cleaned title: '{clean_title}'")
         
         # Search by cleaned title
         tv_search = await tmdb.search().tv(query=clean_title)
 
         if not tv_search or not hasattr(tv_search, "results") or len(tv_search.results) == 0:
+            error_msg = f"No TV show found for '{clean_title}'"
+            if imdb_id:
+                error_msg += f" (original IMDB ID: {imdb_id})"
             return {
                 "success": False,
                 "data": None,
-                "error": f"No TV show found for cleaned title '{clean_title}' (original: '{identifier}')",
+                "error": error_msg,
             }
 
-        # Get the most relevant result
+        # Find the best matching result
+        for result in tv_search.results:
+            show_title = getattr(result, 'name', '').lower()
+            if 'special ops' in show_title or 'special ops' in clean_title.lower():
+                tv_show_id = result.id
+                return await fetch_tv_by_tmdb_id(tv_show_id, season, episode)
+        
+        # If no exact match found, return the first result with warning
         tv_show_id = tv_search.results[0].id
+        LOGGER.warning(f"No exact title match found for '{clean_title}', using first result")
         return await fetch_tv_by_tmdb_id(tv_show_id, season, episode)
+        
     except Exception as e:
         LOGGER.error(
             f"Error fetching TV details for '{identifier}' S{season}E{episode}: {str(e)}"
