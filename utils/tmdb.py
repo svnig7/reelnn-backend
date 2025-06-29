@@ -243,27 +243,123 @@ async def process_movie_file(filename: str) -> TMDbResult:
 
 def parse_tv_filename(filename: str) -> tuple:
     """
-    Parse TV show filename to extract ID/title, season, episode
-    
-    Returns tuple: (identifier, title, season, episode, is_id)
+    Enhanced TV show filename parser that handles:
+    - "The Family Man (2019) S01 E02"
+    - "The.Family.Man.S01E02"
+    - "12345 The Family Man S01E02" (with ID)
     """
-    # Try ID + title pattern (e.g., "93352 The Family Man 2019 S01 E01")
-    match = re.match(r"^(\d+)\s+(.+?)\s+[sS](\d+)\s*[eE](\d+)", filename)
-    if match:
-        return match.group(1), match.group(2), int(match.group(3)), int(match.group(4)), True
+    # Try patterns with year first
+    match = re.match(r"^(\d+)\s+(.+?)\s+\((\d{4})\)\s+[sS](\d+)\s*[eE](\d+)", filename)  # ID + "Title (Year) S01E01"
+    if not match:
+        match = re.match(r"^(.+?)\s+\((\d{4})\)\s+[sS](\d+)\s*[eE](\d+)", filename)  # "Title (Year) S01E01"
+    if not match:
+        match = re.match(r"^(\d+)\s+(.+?)\s+[sS](\d+)\s*[eE](\d+)", filename)  # ID + Title + S01E01
+    if not match:
+        match = re.match(r"^(.+?)[\s\.][sS](\d+)[\s\.]*[eE](\d+)", filename)  # Title.S01E01
     
-    # Try ID-only pattern (e.g., "93352 S01 E01")
-    match = re.match(r"^(\d+)\s+[sS](\d+)\s*[eE](\d+)", filename)
     if match:
-        return match.group(1), None, int(match.group(2)), int(match.group(3)), True
-    
-    # Try title-only patterns (e.g., "The.Family.Man.S01.E01")
-    match = re.match(r"^(.+?)[\s\.][sS](\d+)[\s\.]*[eE](\d+)", filename)
-    if match:
-        title = match.group(1).replace('.', ' ').strip()
-        return None, title, int(match.group(2)), int(match.group(3)), False
+        groups = match.groups()
+        if len(groups) == 5:  # ID + Title + Year + Season + Episode
+            return groups[0], f"{groups[1]} ({groups[2]})", int(groups[3]), int(groups[4]), True
+        elif len(groups) == 4:  # Title + Year + Season + Episode
+            return None, f"{groups[0]} ({groups[1]})", int(groups[2]), int(groups[3]), False
+        elif len(groups) == 3:  # Title + Season + Episode
+            return None, groups[0], int(groups[1]), int(groups[2]), False
     
     return None, None, None, None, False
+
+async def process_tv_file(filename: str) -> TMDbResult:
+    """Robust TV show processor with complete error handling"""
+    try:
+        identifier, title, season, episode, is_id = parse_tv_filename(filename)
+        
+        if season is None or episode is None:
+            return {
+                "success": False,
+                "data": None,
+                "error": f"Could not parse season/episode from filename: {filename}"
+            }
+        
+        # Try with the full title first (including year if present)
+        result = await fetch_tv_tmdb_data(
+            identifier=identifier,
+            title=title,
+            season=season,
+            episode=episode
+        )
+
+        # If that fails, try removing the year
+        if not result["success"] and "(" in title and ")" in title:
+            simple_title = title.split("(")[0].strip()
+            LOGGER.info(f"Retrying with simplified title: {simple_title}")
+            result = await fetch_tv_tmdb_data(
+                identifier=identifier,
+                title=simple_title,
+                season=season,
+                episode=episode
+            )
+
+        if not result["success"]:
+            return result
+
+        tv_data = result["data"]
+        
+        # Ensure season data structure exists
+        if not tv_data.get("season"):
+            tv_data["season"] = [{
+                "season_number": season,
+                "episodes": []
+            }]
+        
+        # Ensure we have our target season
+        target_season = None
+        for s in tv_data["season"]:
+            if s.get("season_number") == season:
+                target_season = s
+                break
+        
+        if not target_season:
+            target_season = {
+                "season_number": season,
+                "episodes": []
+            }
+            tv_data["season"].append(target_season)
+        
+        # Ensure episodes list exists
+        if not target_season.get("episodes"):
+            target_season["episodes"] = []
+        
+        # Find or create our episode
+        target_episode = None
+        for ep in target_season["episodes"]:
+            if ep.get("episode_number") == episode:
+                target_episode = ep
+                break
+        
+        if not target_episode:
+            target_episode = {
+                "episode_number": episode,
+                "name": "Unknown",
+                "runtime": 0,
+                "overview": "",
+                "still_path": "",
+                "air_date": None
+            }
+            target_season["episodes"].append(target_episode)
+        
+        # Ensure still_path is populated
+        if not tv_data.get("still_path") and target_episode.get("still_path"):
+            tv_data["still_path"] = target_episode["still_path"]
+        
+        return {"success": True, "data": tv_data, "error": None}
+
+    except Exception as e:
+        LOGGER.error(f"Failed to process TV file {filename}: {str(e)}", exc_info=True)
+        return {
+            "success": False,
+            "data": None,
+            "error": f"Failed to process TV file: {str(e)}"
+        }
 
 async def fetch_tv_tmdb_data(
     identifier: Optional[str] = None,
@@ -305,101 +401,6 @@ async def fetch_tv_tmdb_data(
     except Exception as e:
         LOGGER.error(f"Error fetching TV details: {str(e)}")
         return {"success": False, "data": None, "error": f"TMDb API error: {str(e)}"}
-
-async def process_tv_file(filename: str) -> TMDbResult:
-    """Complete TV show filename processing pipeline with enhanced error handling"""
-    try:
-        # Parse filename with improved pattern matching
-        identifier, title, season, episode, is_id = parse_tv_filename(filename)
-        
-        if season is None or episode is None:
-            return {
-                "success": False,
-                "data": None,
-                "error": f"Could not parse season/episode from filename: {filename}"
-            }
-        
-        # First try with the year if present in title
-        year_match = re.search(r'(\d{4})$', title) if title else None
-        search_title = title
-        if year_match and title:
-            search_title = title.replace(year_match.group(1), '').strip()
-        
-        result = await fetch_tv_tmdb_data(
-            identifier=identifier,
-            title=search_title,
-            season=season,
-            episode=episode
-        )
-
-        # If first attempt fails and we have a year, try without the year
-        if not result["success"] and year_match and title:
-            LOGGER.info(f"Retrying search without year for: {title}")
-            result = await fetch_tv_tmdb_data(
-                identifier=identifier,
-                title=search_title,
-                season=season,
-                episode=episode
-            )
-
-        # Ensure data structure exists even if API fails
-        if result["success"]:
-            tv_data = result["data"]
-            
-            # Initialize season data if missing
-            if not tv_data.get("season"):
-                tv_data["season"] = []
-            
-            # Find or create the season
-            season_data = next(
-                (s for s in tv_data["season"] if s.get("season_number") == season),
-                None
-            )
-            
-            if not season_data:
-                season_data = {
-                    "season_number": season,
-                    "episodes": []
-                }
-                tv_data["season"].append(season_data)
-            
-            # Ensure episodes list exists
-            if not season_data.get("episodes"):
-                season_data["episodes"] = []
-            
-            # Find or create the episode
-            episode_data = next(
-                (e for e in season_data["episodes"] if e.get("episode_number") == episode),
-                None
-            )
-            
-            if not episode_data:
-                episode_data = {
-                    "episode_number": episode,
-                    "name": "Unknown",
-                    "runtime": 0,
-                    "overview": "",
-                    "still_path": "",
-                    "air_date": None
-                }
-                season_data["episodes"].append(episode_data)
-            
-            # Ensure still_path is populated
-            if not tv_data.get("still_path") and episode_data.get("still_path"):
-                tv_data["still_path"] = episode_data["still_path"]
-            
-            return {"success": True, "data": tv_data, "error": None}
-        
-        return result
-        
-    except Exception as e:
-        LOGGER.error(f"Failed to process TV file {filename}: {str(e)}")
-        return {
-            "success": False,
-            "data": None,
-            "error": f"Failed to process TV file: {str(e)}"
-        }
-
 
 async def fetch_tv_by_tmdb_id(
     tv_id: int, 
