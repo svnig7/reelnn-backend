@@ -246,7 +246,7 @@ async def fetch_tv_by_tmdb_id(
     season: Optional[int] = None, 
     episode: Optional[int] = None
 ) -> TMDbResult:
-    """Fetch TV show details by TMDB ID"""
+    """Fetch TV show details by TMDB ID with robust episode handling"""
     try:
         tv_data = {
             "sid": tv_id,
@@ -273,100 +273,100 @@ async def fetch_tv_by_tmdb_id(
             "season": [],
         }
 
-        # Fetch basic details
+        # Fetch basic details with error handling
         try:
             details = await tmdb.tv(tv_id).details()
-            tv_data.update({
-                "title": getattr(details, "name", ""),
-                "total_seasons": len(getattr(details, "seasons", [])),
-                "total_episodes": getattr(details, "number_of_episodes", 0),
-                "status": getattr(details, "status", ""),
-                "original_title": getattr(details, "original_name", ""),
-                "creators": [
-                    str(creator.name)
-                    for creator in getattr(details, "created_by", [])
-                    if hasattr(creator, "name")
-                ],
-                "release_date": str(details.first_air_date) if hasattr(details, "first_air_date") and details.first_air_date else None,
-                "overview": getattr(details, "overview", ""),
-                "poster_path": getattr(details, "poster_path", "") or "",
-                "backdrop_path": getattr(details, "backdrop_path", "") or "",
-                "popularity": getattr(details, "popularity", 0),
-                "vote_average": getattr(details, "vote_average", 0),
-                "vote_count": getattr(details, "vote_count", 0),
-                "genres": [genre.name for genre in getattr(details, "genres", []) if hasattr(genre, "name")],
-                "studios": [
-                    getattr(company, "name", "")
-                    for company in getattr(details, "production_companies", [])
-                    if hasattr(company, "name")
-                ],
-            })
+            if details:
+                tv_data.update({
+                    "title": getattr(details, "name", ""),
+                    "total_seasons": len(getattr(details, "seasons", [])),
+                    "total_episodes": getattr(details, "number_of_episodes", 0),
+                    "status": getattr(details, "status", ""),
+                    "original_title": getattr(details, "original_name", ""),
+                    "creators": [
+                        str(creator.name)
+                        for creator in getattr(details, "created_by", [])
+                        if hasattr(creator, "name")
+                    ],
+                    "release_date": str(details.first_air_date) if hasattr(details, "first_air_date") else None,
+                    "overview": getattr(details, "overview", ""),
+                    "poster_path": getattr(details, "poster_path", "") or "",
+                    "backdrop_path": getattr(details, "backdrop_path", "") or "",
+                    "popularity": float(getattr(details, "popularity", 0)),
+                    "vote_average": float(getattr(details, "vote_average", 0)),
+                    "vote_count": int(getattr(details, "vote_count", 0)),
+                    "genres": [genre.name for genre in getattr(details, "genres", []) if hasattr(genre, "name")],
+                    "studios": [
+                        getattr(company, "name", "")
+                        for company in getattr(details, "production_companies", [])
+                        if hasattr(company, "name")
+                    ],
+                })
         except Exception as e:
             LOGGER.warning(f"Error fetching TV show details for ID {tv_id}: {str(e)}")
 
-        # Fetch season/episode data if specified
+        # Enhanced season/episode handling
         if season is not None:
+            # Initialize season data
             season_data = {
-                "season_number": int(season),
-                "episodes": [],
+                "season_number": season,
+                "episodes": []
             }
             
             if episode is not None:
-                episode_data = {
-                    "episode_number": int(episode),
-                    "name": "",
-                    "runtime": 0,
-                    "overview": "",
-                    "still_path": "",
-                    "air_date": None,
-                }
-                
+                # Try to get episode details
                 try:
                     episode_details = await tmdb.episode(tv_id, season, episode).details()
-                    episode_data.update({
-                        "name": getattr(episode_details, "name", ""),
-                        "runtime": int(getattr(episode_details, "runtime", 0) or 0),
+                    episode_data = {
+                        "episode_number": episode,
+                        "name": getattr(episode_details, "name", "Unknown"),
+                        "runtime": int(getattr(episode_details, "runtime", 0)),
                         "overview": getattr(episode_details, "overview", ""),
                         "still_path": getattr(episode_details, "still_path", "") or "",
-                        "air_date": str(episode_details.air_date) if hasattr(episode_details, "air_date") and episode_details.air_date else None,
-                    })
+                        "air_date": str(getattr(episode_details, "air_date", "")) or None
+                    }
                     tv_data["still_path"] = episode_data["still_path"]
                 except Exception as e:
-                    LOGGER.warning(f"Error fetching episode details for ID {tv_id} S{season}E{episode}: {str(e)}")
+                    LOGGER.warning(f"Error fetching episode {episode} details: {str(e)}")
+                    episode_data = {
+                        "episode_number": episode,
+                        "name": "Unknown",
+                        "runtime": 0,
+                        "overview": "",
+                        "still_path": "",
+                        "air_date": None
+                    }
                 
                 season_data["episodes"].append(episode_data)
             
             tv_data["season"].append(season_data)
 
         # Fetch additional data
-        tv_data["logo"] = await _fetch_logos("tv", tv_id)
-        
-        external_ids = await _fetch_external_ids("tv", tv_id)
-        if external_ids.get("imdb_id"):
-            tv_data["links"].append(f"https://www.imdb.com/title/{external_ids['imdb_id']}")
-
         try:
+            tv_data["logo"] = await _fetch_logos("tv", tv_id)
+            
+            external_ids = await _fetch_external_ids("tv", tv_id)
+            if external_ids.get("imdb_id"):
+                tv_data["links"].append(f"https://www.imdb.com/title/{external_ids['imdb_id']}")
+
             casts = await tmdb.tv(tv_id).credits()
             if hasattr(casts, "cast"):
                 tv_data["cast"] = [
                     {
                         "name": getattr(actor, "name", ""),
-                        "imageUrl": getattr(actor, "profile_path", ""),
-                        "character": getattr(actor, "character", ""),
+                        "imageUrl": getattr(actor, "profile_path", "") or "",
+                        "character": getattr(actor, "character", "") or "",
                     }
                     for actor in casts.cast[:20]
                     if hasattr(actor, "name")
                 ]
-        except Exception as e:
-            LOGGER.warning(f"Error fetching cast/crew for TV ID {tv_id}: {str(e)}")
 
-        await asyncio.sleep(1)
-
-        try:
+            await asyncio.sleep(1)
+            
             videos = await tmdb.tv(tv_id).videos()
-            tv_data["trailer"] = get_official_trailer_url(videos)
+            tv_data["trailer"] = get_official_trailer_url(videos) or ""
         except Exception as e:
-            LOGGER.warning(f"Error fetching videos for TV ID {tv_id}: {str(e)}")
+            LOGGER.warning(f"Error fetching additional data for TV ID {tv_id}: {str(e)}")
 
         return {"success": True, "data": tv_data, "error": None}
     except Exception as e:
@@ -439,19 +439,94 @@ async def fetch_tv_tmdb_data(
         return {"success": False, "data": None, "error": f"TMDb API error: {str(e)}"}
 
 async def process_tv_file(filename: str) -> TMDbResult:
-    """Complete TV show filename processing pipeline"""
-    identifier, title, season, episode, is_id = parse_tv_filename(filename)
-    
-    if season is None or episode is None:
+    """Complete TV show filename processing pipeline with enhanced error handling"""
+    try:
+        # Parse filename with improved pattern matching
+        identifier, title, season, episode, is_id = parse_tv_filename(filename)
+        
+        if season is None or episode is None:
+            return {
+                "success": False,
+                "data": None,
+                "error": f"Could not parse season/episode from filename: {filename}"
+            }
+        
+        # First try with the year if present in title
+        year_match = re.search(r'(\d{4})$', title) if title else None
+        search_title = title
+        if year_match and title:
+            search_title = title.replace(year_match.group(1), '').strip()
+            year = int(year_match.group(1))
+        else:
+            year = None
+        
+        result = await fetch_tv_tmdb_data(
+            identifier=identifier,
+            title=search_title,
+            season=season,
+            episode=episode
+        )
+
+        # If first attempt fails and we have a year, try without the year
+        if not result["success"] and year_match and title:
+            LOGGER.info(f"Retrying search without year for: {title}")
+            result = await fetch_tv_tmdb_data(
+                identifier=identifier,
+                title=search_title,
+                season=season,
+                episode=episode
+            )
+
+        # Ensure data structure exists even if API fails
+        if result["success"]:
+            tv_data = result["data"]
+            
+            # Initialize season data if missing
+            if not tv_data.get("season"):
+                tv_data["season"] = []
+            
+            # Find or create the season
+            season_data = next(
+                (s for s in tv_data["season"] if s["season_number"] == season),
+                None
+            )
+            
+            if not season_data:
+                season_data = {
+                    "season_number": season,
+                    "episodes": []
+                }
+                tv_data["season"].append(season_data)
+            
+            # Find or create the episode
+            episode_data = next(
+                (e for e in season_data["episodes"] if e["episode_number"] == episode),
+                None
+            )
+            
+            if not episode_data:
+                episode_data = {
+                    "episode_number": episode,
+                    "name": "Unknown",
+                    "runtime": 0,
+                    "overview": "",
+                    "still_path": "",
+                    "air_date": None
+                }
+                season_data["episodes"].append(episode_data)
+            
+            # Ensure still_path is populated
+            if not tv_data.get("still_path") and episode_data.get("still_path"):
+                tv_data["still_path"] = episode_data["still_path"]
+            
+            return {"success": True, "data": tv_data, "error": None}
+        
+        return result
+        
+    except Exception as e:
+        LOGGER.error(f"Failed to process TV file {filename}: {str(e)}")
         return {
             "success": False,
             "data": None,
-            "error": f"Could not parse season/episode from filename: {filename}"
+            "error": f"Failed to process TV file: {str(e)}"
         }
-    
-    return await fetch_tv_tmdb_data(
-        identifier=identifier,
-        title=title,
-        season=season,
-        episode=episode
-    )
