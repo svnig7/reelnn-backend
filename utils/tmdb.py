@@ -324,9 +324,6 @@ async def process_tv_file(filename: str) -> TMDbResult:
         search_title = title
         if year_match and title:
             search_title = title.replace(year_match.group(1), '').strip()
-            year = int(year_match.group(1))
-        else:
-            year = None
         
         result = await fetch_tv_tmdb_data(
             identifier=identifier,
@@ -355,7 +352,7 @@ async def process_tv_file(filename: str) -> TMDbResult:
             
             # Find or create the season
             season_data = next(
-                (s for s in tv_data["season"] if s["season_number"] == season),
+                (s for s in tv_data["season"] if s.get("season_number") == season),
                 None
             )
             
@@ -366,9 +363,13 @@ async def process_tv_file(filename: str) -> TMDbResult:
                 }
                 tv_data["season"].append(season_data)
             
+            # Ensure episodes list exists
+            if not season_data.get("episodes"):
+                season_data["episodes"] = []
+            
             # Find or create the episode
             episode_data = next(
-                (e for e in season_data["episodes"] if e["episode_number"] == episode),
+                (e for e in season_data["episodes"] if e.get("episode_number") == episode),
                 None
             )
             
