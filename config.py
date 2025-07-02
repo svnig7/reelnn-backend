@@ -44,7 +44,7 @@ MULTI_TOKENS = {
 
 DELETE_AFTER_MINUTES = int(os.environ.get("DELETE_AFTER_MINUTES", 10))
 POST_UPDATES = os.environ.get("POST_UPDATES", "False")
-USE_CAPTION = os.environ.get("USE_CAPTION", "False")
+USE_CAPTION = os.environ.get("USE_CAPTION", "True")
 
 # Port configuration
 PORT = int(os.environ.get("PORT", 8080))
