@@ -381,165 +381,128 @@ async def _fetch_tv_additional_data(tv_id: int, tv_data: Dict[str, Any]) -> None
     except Exception as e:
         LOGGER.warning(f"Error fetching videos for TV ID {tv_id}: {str(e)}")
 
-# Update the original functions to use the new helper functions
 @async_lru_cache(maxsize=100)
 async def fetch_movie_tmdb_data(title: str, year: Optional[int] = None) -> TMDbResult:
     """
-    Fetch movie details from TMDb API
-
-    Args:
-        title: Movie title to search for
-        year: Optional release year for more accurate search
-
-    Returns:
-        Dictionary with movie data or error information
+    Fetch movie details from TMDb API.
     """
     try:
-        # First try to parse as ID if it's numeric
+        # Step 1: Try IMDb ID
+        if title.startswith("tt") and title[2:].isdigit():
+            try:
+                result = await tmdb.find(title).external("imdb_id")
+                if result and hasattr(result, "movie_results") and result.movie_results:
+                    return await fetch_movie_by_tmdb_id(result.movie_results[0].id)
+            except Exception as e:
+                LOGGER.warning(f"IMDb ID lookup failed for {title}: {e}")
+
+        # Step 2: Try TMDb numeric ID
         if title[:1].isdigit():
-            # Try to extract just the numeric part
             possible_id = ''.join(c for c in title.split()[0] if c.isdigit())
             try:
-                # Try fetching as ID first
                 result = await fetch_movie_by_tmdb_id(int(possible_id))
                 if result["success"]:
                     return result
             except ValueError:
-                pass  # Not a valid ID, fall through to title search
-        
-        # Clean up the title by removing year and other metadata
-        clean_title = ' '.join([word for word in title.split() 
-                               if not word.isdigit() or len(word) != 4])
-        
-        # Search with year if provided
+                pass
+
+        # Step 3: Search by title (fallback)
+        clean_title = ' '.join([word for word in title.split() if not word.isdigit() or len(word) != 4])
         search_params = {"query": clean_title}
         if year:
             search_params["year"] = year
-            
+
         search = await tmdb.search().movies(**search_params)
 
-        if not search or not hasattr(search, "results") or len(search.results) == 0:
-            # Try again without year if first search fails
+        if not search or not hasattr(search, "results") or not search.results:
             if year:
                 search = await tmdb.search().movies(query=clean_title)
-                if not search or not hasattr(search, "results") or len(search.results) == 0:
+                if not search or not hasattr(search, "results") or not search.results:
                     return {
                         "success": False,
                         "data": None,
                         "error": f"No movie found for '{clean_title}' ({year})",
                     }
-
             return {
                 "success": False,
                 "data": None,
                 "error": f"No movie found for '{clean_title}'",
             }
 
-        # If we searched with year, try to find exact match first
+        # Prefer exact year match
+        movie_id = search.results[0].id
         if year:
-            exact_match = None
-            for result in search.results:
-                release_year = (
-                    result.release_date.year 
-                    if hasattr(result, "release_date") and result.release_date 
-                    else None
-                )
-                if release_year == year:
-                    exact_match = result
+            for r in search.results:
+                if hasattr(r, "release_date") and r.release_date and r.release_date.year == year:
+                    movie_id = r.id
                     break
-            
-            movie_id = exact_match.id if exact_match else search.results[0].id
-        else:
-            movie_id = search.results[0].id
-            
+
         return await fetch_movie_by_tmdb_id(movie_id)
     except Exception as e:
         LOGGER.error(f"Error searching for movie '{title}': {str(e)}")
         return {"success": False, "data": None, "error": f"Search error: {str(e)}"}
         
 async def fetch_tv_tmdb_data(
-    identifier: str, 
-    season: int, 
+    identifier: str,
+    season: int,
     episode: int,
     is_id: bool = False,
     year: Optional[int] = None
 ) -> TMDbResult:
-    """
-    Fetch TV show details from TMDb API
-
-    Args:
-        identifier: Either TV show title or TMDB ID
-        season: Season number
-        episode: Episode number
-        is_id: Whether the identifier is a TMDB ID
-        year: Optional first air year for more accurate search
-
-    Returns:
-        Dictionary with TV show data or error information
-    """
     try:
-        # First try to parse as ID if it's numeric
-        if not is_id and identifier[:1].isdigit():
-            # Try to extract just the numeric part
+        # Step 1: Try IMDb ID
+        if identifier.startswith("tt") and identifier[2:].isdigit():
+            try:
+                result = await tmdb.find(identifier).external("imdb_id")
+                if result and hasattr(result, "tv_results") and result.tv_results:
+                    return await fetch_tv_by_tmdb_id(result.tv_results[0].id, season, episode)
+            except Exception as e:
+                LOGGER.warning(f"IMDb ID lookup failed for {identifier}: {e}")
+
+        # Step 2: Direct TMDb ID
+        if is_id:
+            return await fetch_tv_by_tmdb_id(int(identifier), season, episode)
+
+        if identifier[:1].isdigit():
             possible_id = ''.join(c for c in identifier.split()[0] if c.isdigit())
             try:
-                # Try fetching as ID first
                 result = await fetch_tv_by_tmdb_id(int(possible_id), season, episode)
                 if result["success"]:
                     return result
             except ValueError:
-                pass  # Not a valid ID, fall through to title search
-        
-        if is_id:
-            # Directly fetch by ID if we know it's an ID
-            return await fetch_tv_by_tmdb_id(int(identifier), season, episode)
-        else:
-            # Clean up the title by removing year and other metadata
-            clean_title = ' '.join([word for word in identifier.split() 
-                                   if not word.isdigit() or len(word) != 4])
-            
-            # Search with first air year if provided
-            search_params = {"query": clean_title}
+                pass
+
+        # Step 3: Search by title
+        clean_title = ' '.join([word for word in identifier.split() if not word.isdigit() or len(word) != 4])
+        search_params = {"query": clean_title}
+        if year:
+            search_params["first_air_date_year"] = year
+
+        tv_search = await tmdb.search().tv(**search_params)
+
+        if not tv_search or not hasattr(tv_search, "results") or not tv_search.results:
             if year:
-                search_params["first_air_date_year"] = year
-                
-            tv_search = await tmdb.search().tv(**search_params)
+                tv_search = await tmdb.search().tv(query=clean_title)
+                if not tv_search or not hasattr(tv_search, "results") or not tv_search.results:
+                    return {
+                        "success": False,
+                        "data": None,
+                        "error": f"No TV show found for '{clean_title}' ({year})",
+                    }
+            return {
+                "success": False,
+                "data": None,
+                "error": f"No TV show found for '{clean_title}'",
+            }
 
-            if not tv_search or not hasattr(tv_search, "results") or len(tv_search.results) == 0:
-                # Try again without year if first search fails
-                if year:
-                    tv_search = await tmdb.search().tv(query=clean_title)
-                    if not tv_search or not hasattr(tv_search, "results") or len(tv_search.results) == 0:
-                        return {
-                            "success": False,
-                            "data": None,
-                            "error": f"No TV show found for '{clean_title}' ({year})",
-                        }
+        tv_show_id = tv_search.results[0].id
+        if year:
+            for r in tv_search.results:
+                if hasattr(r, "first_air_date") and r.first_air_date and r.first_air_date.year == year:
+                    tv_show_id = r.id
+                    break
 
-                return {
-                    "success": False,
-                    "data": None,
-                    "error": f"No TV show found for '{clean_title}'",
-                }
-
-            # If we searched with year, try to find exact match first
-            if year:
-                exact_match = None
-                for result in tv_search.results:
-                    first_air_year = (
-                        result.first_air_date.year 
-                        if hasattr(result, "first_air_date") and result.first_air_date 
-                        else None
-                    )
-                    if first_air_year == year:
-                        exact_match = result
-                        break
-                
-                tv_show_id = exact_match.id if exact_match else tv_search.results[0].id
-            else:
-                tv_show_id = tv_search.results[0].id
-                
-            return await fetch_tv_by_tmdb_id(tv_show_id, season, episode)
+        return await fetch_tv_by_tmdb_id(tv_show_id, season, episode)
     except Exception as e:
         LOGGER.error(
             f"Error fetching TV details for '{identifier}' S{season}E{episode}: {str(e)}"
