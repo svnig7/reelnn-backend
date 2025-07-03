@@ -35,34 +35,31 @@ def async_lru_cache(maxsize=128, typed=False):
     return decorator
 
 def parse_tmdb_input(
+from guessit import guessit
+
+def parse_tmdb_input(
     input_text: str,
     is_tv: bool = False,
     default_season: int = 1,
     default_episode: int = 1
 ) -> Dict[str, Any]:
     """
-    Parse raw input to extract TMDb ID or title for movie or TV fetch functions.
-    
-    Args:
-        input_text (str): Raw user input
-        is_tv (bool): Whether this is a TV show input
-        default_season (int): Default season number for TV
-        default_episode (int): Default episode number for TV
-    
-    Returns:
-        Dict[str, Any]: Parsed args for fetch function
+    Parse input to extract TMDb ID or clean title using guessit.
     """
     lines = input_text.strip().splitlines()
-    first_line = lines[0].strip()
+    result: Dict[str, Any] = {}
 
-    if first_line.isdigit():
-        result = {"tmdb_id": int(first_line)}
+    # Check if the first line is TMDb ID
+    if lines and lines[0].strip().isdigit():
+        result["tmdb_id"] = int(lines[0].strip())
     else:
-        result = {"title": input_text.strip()}
+        info = guessit(input_text)
+        result["title"] = info.get("title", input_text.strip())
 
     if is_tv:
-        result.setdefault("season", default_season)
-        result.setdefault("episode", default_episode)
+        info = guessit(input_text)
+        result["season"] = info.get("season", default_season)
+        result["episode"] = info.get("episode", default_episode)
 
     return result
 
