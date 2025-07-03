@@ -41,26 +41,23 @@ def parse_tmdb_input(
     default_season: int = 1,
     default_episode: int = 1
 ) -> Dict[str, Any]:
-    """
-    Parse input to extract TMDb ID or clean title using guessit.
-    """
-    lines = input_text.strip().splitlines()
+    # Normalize string (handles both actual newlines and literal "\n")
+    cleaned = input_text.replace("\\n", "\n").strip()
+    lines = cleaned.splitlines()
+
     result: Dict[str, Any] = {}
 
-    # Check if the first line is TMDb ID
     if lines and lines[0].strip().isdigit():
         result["tmdb_id"] = int(lines[0].strip())
     else:
-        info = guessit(input_text)
-        result["title"] = info.get("title", input_text.strip())
+        result["title"] = cleaned
 
     if is_tv:
-        info = guessit(input_text)
-        result["season"] = info.get("season", default_season)
-        result["episode"] = info.get("episode", default_episode)
+        result.setdefault("season", default_season)
+        result.setdefault("episode", default_episode)
 
     return result
-
+    
 @async_lru_cache(maxsize=100)
 async def fetch_movie_tmdb_data(
     title: Optional[str] = None,
