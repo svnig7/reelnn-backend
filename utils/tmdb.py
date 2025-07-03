@@ -69,6 +69,12 @@ async def fetch_movie_by_tmdb_id(movie_id: int) -> TMDbResult:
         # Fetch basic details
         try:
             movie_details = await tmdb.movie(movie_id).details()
+            if not movie_details or not hasattr(movie_details, "title") or not movie_details.title:
+                return {
+                    "success": False,
+                    "data": None,
+                    "error": f"TMDb movie fetch failed for ID {movie_id}"
+                }
             movie_data["title"] = getattr(movie_details, "title", "")
             movie_data["original_title"] = getattr(movie_details, "original_title", "")
             movie_data["release_date"] = (
