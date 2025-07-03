@@ -36,25 +36,46 @@ def async_lru_cache(maxsize=128, typed=False):
     return decorator
 
 def parse_tmdb_input(
+from typing import Dict, Any
+
+def parse_tmdb_input(
     input_text: str,
     is_tv: bool = False,
     default_season: int = 1,
     default_episode: int = 1
 ) -> Dict[str, Any]:
-    # Normalize string (handles both actual newlines and literal "\n")
+    """
+    Parses a text input to extract either a TMDb ID or a title.
+    Supports inputs like:
+    - '1121330\n8 A.M. Metro ...'
+    - '8 A.M. Metro ...'
+
+    Args:
+        input_text (str): Raw caption or filename input
+        is_tv (bool): Whether it's a TV show
+        default_season (int): Default season for TV
+        default_episode (int): Default episode for TV
+
+    Returns:
+        dict: Parsed data with tmdb_id or title, and optional season/episode
+    """
+
+    # Normalize literal "\\n" to real newlines
     cleaned = input_text.replace("\\n", "\n").strip()
     lines = cleaned.splitlines()
 
     result: Dict[str, Any] = {}
 
+    # First line is a TMDb ID (e.g. 1121330)
     if lines and lines[0].strip().isdigit():
         result["tmdb_id"] = int(lines[0].strip())
     else:
-        result["title"] = cleaned
+        result["title"] = cleaned  # fallback to full cleaned input
 
+    # If TV, add season and episode info
     if is_tv:
-        result.setdefault("season", default_season)
-        result.setdefault("episode", default_episode)
+        result["season"] = default_season
+        result["episode"] = default_episode
 
     return result
     
