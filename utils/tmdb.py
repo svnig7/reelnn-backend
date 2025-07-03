@@ -37,22 +37,24 @@ def async_lru_cache(maxsize=128, typed=False):
 @async_lru_cache(maxsize=100)
 async def fetch_movie_tmdb_data(title_or_id: str, year: Optional[int] = None) -> TMDbResult:
     try:
-        # Check if title_or_id is a numeric TMDb ID
-        if title_or_id.isdigit():
-            movie_id = int(title_or_id)
-        else:
-            search = await tmdb.search().movies(query=title_or_id, year=year)
+        # Try TMDb ID directly if numeric, else search by title
+        try:
+            if title_or_id.isdigit():
+                movie_id = int(title_or_id)
+                search = None
+            else:
+                search = await tmdb.search().movies(query=title_or_id, year=year)
 
-            if not search or not hasattr(search, "results") or len(search.results) == 0:
-                return {
-                    "success": False,
-                    "data": None,
-                    "error": f"No movie found for '{title_or_id}'",
-                }
+                if not search or not hasattr(search, "results") or len(search.results) == 0:
+                    return {
+                        "success": False,
+                        "data": None,
+                        "error": f"No movie found for '{title_or_id}'",
+                    }
 
-            movie_id = search.results[0].id
+                movie_id = search.results[0].id
         except Exception as e:
-            LOGGER.error(f"Error searching for movie '{title}': {str(e)}")
+            LOGGER.error(f"Error searching for movie '{title_or_id}': {str(e)}")
             return {"success": False, "data": None, "error": f"Search error: {str(e)}"}
 
         movie_data = {
@@ -87,9 +89,7 @@ async def fetch_movie_tmdb_data(title_or_id: str, year: Optional[int] = None) ->
             )
             movie_data["overview"] = getattr(movie_details, "overview", "")
             movie_data["poster_path"] = getattr(movie_details, "poster_path", "") or ""
-            movie_data["backdrop_path"] = (
-                getattr(movie_details, "backdrop_path", "") or ""
-            )
+            movie_data["backdrop_path"] = getattr(movie_details, "backdrop_path", "") or ""
             movie_data["runtime"] = getattr(movie_details, "runtime", 0) or 0
             movie_data["popularity"] = getattr(movie_details, "popularity", 0) or 0
             movie_data["vote_average"] = getattr(movie_details, "vote_average", 0) or 0
@@ -102,7 +102,7 @@ async def fetch_movie_tmdb_data(title_or_id: str, year: Optional[int] = None) ->
                 if hasattr(company, "name")
             ]
         except Exception as e:
-            LOGGER.warning(f"Error fetching movie details for '{title}': {str(e)}")
+            LOGGER.warning(f"Error fetching movie details for '{title_or_id}': {str(e)}")
 
         try:
             logos = await tmdb.movie(movie_id).images()
@@ -126,7 +126,7 @@ async def fetch_movie_tmdb_data(title_or_id: str, year: Optional[int] = None) ->
 
             movie_data["logo"] = logo_path or ""
         except Exception as e:
-            LOGGER.warning(f"Error fetching logos for '{title}': {str(e)}")
+            LOGGER.warning(f"Error fetching logos for '{title_or_id}': {str(e)}")
 
         try:
             movie_external_ids = await tmdb.movie(movie_id).external_ids()
@@ -135,19 +135,19 @@ async def fetch_movie_tmdb_data(title_or_id: str, year: Optional[int] = None) ->
                     f"https://www.imdb.com/title/{movie_external_ids.imdb_id}"
                 )
         except Exception as e:
-            LOGGER.warning(f"Error fetching external IDs for '{title}': {str(e)}")
+            LOGGER.warning(f"Error fetching external IDs for '{title_or_id}': {str(e)}")
 
         try:
             genre_data = await tmdb.genres().movie()
             genre_map = {genre.id: genre.name for genre in genre_data.genres}
-            genre_ids = getattr(search.results[0], "genre_ids", [])
+            genre_ids = getattr(search.results[0], "genre_ids", []) if search else []
             movie_data["genres"] = [
                 genre_map.get(genre_id)
                 for genre_id in genre_ids
                 if genre_id in genre_map
             ]
         except Exception as e:
-            LOGGER.warning(f"Error fetching genres for '{title}': {str(e)}")
+            LOGGER.warning(f"Error fetching genres for '{title_or_id}': {str(e)}")
 
         try:
             casts = await tmdb.movie(movie_id).credits()
@@ -171,7 +171,7 @@ async def fetch_movie_tmdb_data(title_or_id: str, year: Optional[int] = None) ->
                     and hasattr(member, "name")
                 ]
         except Exception as e:
-            LOGGER.warning(f"Error fetching cast/crew for '{title}': {str(e)}")
+            LOGGER.warning(f"Error fetching cast/crew for '{title_or_id}': {str(e)}")
 
         await asyncio.sleep(2)
 
@@ -179,34 +179,39 @@ async def fetch_movie_tmdb_data(title_or_id: str, year: Optional[int] = None) ->
             videos = await tmdb.movie(movie_id).videos()
             movie_data["trailer"] = get_official_trailer_url(videos) or ""
         except Exception as e:
-            LOGGER.warning(f"Error fetching videos for '{title}': {str(e)}")
+            LOGGER.warning(f"Error fetching videos for '{title_or_id}': {str(e)}")
 
         return {"success": True, "data": movie_data, "error": None}
     except Exception as e:
-        LOGGER.error(f"Error fetching movie details for '{title}': {str(e)}")
+        LOGGER.error(f"Error fetching movie details for '{title_or_id}': {str(e)}")
         return {"success": False, "data": None, "error": f"TMDb API error: {str(e)}"}
 
+@async_lru_cache(maxsize=100)
 async def fetch_tv_tmdb_data(title_or_id: str, season: int, episode: int) -> TMDbResult:
     try:
-        # Check if title_or_id is a numeric TMDb ID
-        if title_or_id.isdigit():
-            tv_show_id = int(title_or_id)
-            tv_search = None
-        else:
-            tv_search = await tmdb.search().tv(query=title_or_id)
+        # Use TMDb ID if numeric, else perform search
+        try:
+            if title_or_id.isdigit():
+                tv_show_id = int(title_or_id)
+                tv_search = None
+            else:
+                tv_search = await tmdb.search().tv(query=title_or_id)
 
-            if (
-                not tv_search
-                or not hasattr(tv_search, "results")
-                or len(tv_search.results) == 0
-            ):
-                return {
-                    "success": False,
-                    "data": None,
-                    "error": f"No TV show found for '{title_or_id}'",
-                }
+                if (
+                    not tv_search
+                    or not hasattr(tv_search, "results")
+                    or len(tv_search.results) == 0
+                ):
+                    return {
+                        "success": False,
+                        "data": None,
+                        "error": f"No TV show found for '{title_or_id}'",
+                    }
 
-            tv_show_id = tv_search.results[0].id
+                tv_show_id = tv_search.results[0].id
+        except Exception as e:
+            LOGGER.error(f"Error searching for TV show '{title_or_id}': {str(e)}")
+            return {"success": False, "data": None, "error": f"Search error: {str(e)}"}
 
         tv_data = {
             "sid": tv_show_id,
@@ -246,13 +251,12 @@ async def fetch_tv_tmdb_data(title_or_id: str, season: int, episode: int) -> TMD
                 }
             ],
         }
+
         try:
             tv_show_details = await tmdb.tv(tv_show_id).details()
             tv_data["title"] = getattr(tv_show_details, "name", "")
             tv_data["total_seasons"] = len(getattr(tv_show_details, "seasons", []))
-            tv_data["total_episodes"] = getattr(
-                tv_show_details, "number_of_episodes", 0
-            )
+            tv_data["total_episodes"] = getattr(tv_show_details, "number_of_episodes", 0)
             tv_data["status"] = getattr(tv_show_details, "status", "")
             tv_data["original_title"] = getattr(tv_show_details, "original_name", "")
             tv_data["creators"] = [
@@ -262,18 +266,16 @@ async def fetch_tv_tmdb_data(title_or_id: str, season: int, episode: int) -> TMD
             ]
             tv_data["release_date"] = (
                 str(tv_show_details.first_air_date)
-                if hasattr(tv_show_details, "first_air_date")
-                and tv_show_details.first_air_date
+                if hasattr(tv_show_details, "first_air_date") and tv_show_details.first_air_date
                 else None
             )
             tv_data["overview"] = getattr(tv_show_details, "overview", "")
             tv_data["poster_path"] = getattr(tv_show_details, "poster_path", "") or ""
-            tv_data["backdrop_path"] = (
-                getattr(tv_show_details, "backdrop_path", "") or ""
-            )
+            tv_data["backdrop_path"] = getattr(tv_show_details, "backdrop_path", "") or ""
             tv_data["popularity"] = getattr(tv_show_details, "popularity", 0)
             tv_data["vote_average"] = getattr(tv_show_details, "vote_average", 0)
             tv_data["vote_count"] = getattr(tv_show_details, "vote_count", 0)
+
             production_companies = getattr(tv_show_details, "production_companies", [])
             tv_data["studios"] = [
                 getattr(company, "name", "")
@@ -281,18 +283,17 @@ async def fetch_tv_tmdb_data(title_or_id: str, season: int, episode: int) -> TMD
                 if hasattr(company, "name")
             ]
         except Exception as e:
-            LOGGER.warning(f"Error fetching TV show details for '{title}': {str(e)}")
+            LOGGER.warning(f"Error fetching TV show details for '{title_or_id}': {str(e)}")
 
         await asyncio.sleep(2)
+
         try:
             episode_details = await tmdb.episode(tv_show_id, season, episode).details()
             episode_data = tv_data["season"][0]["episodes"][0]
             episode_data["name"] = getattr(episode_details, "name", "")
             episode_data["runtime"] = int(getattr(episode_details, "runtime", 0) or 0)
             episode_data["overview"] = getattr(episode_details, "overview", "")
-            episode_data["still_path"] = (
-                getattr(episode_details, "still_path", "") or ""
-            )
+            episode_data["still_path"] = getattr(episode_details, "still_path", "") or ""
             episode_data["air_date"] = (
                 str(episode_details.air_date)
                 if hasattr(episode_details, "air_date") and episode_details.air_date
@@ -300,21 +301,18 @@ async def fetch_tv_tmdb_data(title_or_id: str, season: int, episode: int) -> TMD
             )
             tv_data["still_path"] = episode_data["still_path"]
         except Exception as e:
-            LOGGER.warning(
-                f"Error fetching episode details for '{title}' S{season}E{episode}: {str(e)}"
-            )
+            LOGGER.warning(f"Error fetching episode details for '{title_or_id}' S{season}E{episode}: {str(e)}")
+
         try:
             logos = await tmdb.tv(tv_show_id).images()
             logo_path = ""
             if hasattr(logos, "logos") and logos.logos:
                 en_logos = [
-                    logo
-                    for logo in logos.logos
+                    logo for logo in logos.logos
                     if hasattr(logo, "iso_639_1") and logo.iso_639_1 == "en"
                 ]
                 in_logos = [
-                    logo
-                    for logo in logos.logos
+                    logo for logo in logos.logos
                     if hasattr(logo, "iso_639_1") and logo.iso_639_1 == "in"
                 ]
 
@@ -325,23 +323,23 @@ async def fetch_tv_tmdb_data(title_or_id: str, season: int, episode: int) -> TMD
 
             tv_data["logo"] = logo_path or ""
         except Exception as e:
-            LOGGER.warning(f"Error fetching logos for '{title}': {str(e)}")
+            LOGGER.warning(f"Error fetching logos for '{title_or_id}': {str(e)}")
 
         await asyncio.sleep(2)
+
         try:
             tv_external_ids = await tmdb.tv(tv_show_id).external_ids()
             if hasattr(tv_external_ids, "imdb_id") and tv_external_ids.imdb_id:
-                tv_data["links"].append(
-                    f"https://www.imdb.com/title/{tv_external_ids.imdb_id}"
-                )
+                tv_data["links"].append(f"https://www.imdb.com/title/{tv_external_ids.imdb_id}")
         except Exception as e:
-            LOGGER.warning(f"Error fetching external IDs for '{title}': {str(e)}")
+            LOGGER.warning(f"Error fetching external IDs for '{title_or_id}': {str(e)}")
+
         try:
             genre_data = await tmdb.genres().tv()
             genre_map = {genre.id: genre.name for genre in genre_data.genres}
             genre_ids = (
                 tv_search.results[0].genre_ids
-                if hasattr(tv_search.results[0], "genre_ids")
+                if tv_search and hasattr(tv_search.results[0], "genre_ids")
                 else []
             )
             tv_data["genres"] = [
@@ -350,7 +348,7 @@ async def fetch_tv_tmdb_data(title_or_id: str, season: int, episode: int) -> TMD
                 if genre_id in genre_map
             ]
         except Exception as e:
-            LOGGER.warning(f"Error fetching genres for '{title}': {str(e)}")
+            LOGGER.warning(f"Error fetching genres for '{title_or_id}': {str(e)}")
 
         try:
             casts = await tmdb.tv(tv_show_id).credits()
@@ -365,7 +363,7 @@ async def fetch_tv_tmdb_data(title_or_id: str, season: int, episode: int) -> TMD
                     if hasattr(actor, "name")
                 ]
         except Exception as e:
-            LOGGER.warning(f"Error fetching cast/crew for '{title}': {str(e)}")
+            LOGGER.warning(f"Error fetching cast/crew for '{title_or_id}': {str(e)}")
 
         await asyncio.sleep(1)
 
@@ -373,11 +371,9 @@ async def fetch_tv_tmdb_data(title_or_id: str, season: int, episode: int) -> TMD
             videos = await tmdb.tv(tv_show_id).videos()
             tv_data["trailer"] = get_official_trailer_url(videos)
         except Exception as e:
-            LOGGER.warning(f"Error fetching videos for '{title}': {str(e)}")
+            LOGGER.warning(f"Error fetching videos for '{title_or_id}': {str(e)}")
 
         return {"success": True, "data": tv_data, "error": None}
     except Exception as e:
-        LOGGER.error(
-            f"Error fetching TV details for '{title}' S{season}E{episode}: {str(e)}"
-        )
+        LOGGER.error(f"Error fetching TV details for '{title_or_id}' S{season}E{episode}: {str(e)}")
         return {"success": False, "data": None, "error": f"TMDb API error: {str(e)}"}
