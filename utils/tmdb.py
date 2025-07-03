@@ -36,9 +36,6 @@ def async_lru_cache(maxsize=128, typed=False):
     return decorator
 
 def parse_tmdb_input(
-from typing import Dict, Any
-
-def parse_tmdb_input(
     input_text: str,
     is_tv: bool = False,
     default_season: int = 1,
