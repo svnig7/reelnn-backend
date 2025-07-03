@@ -5,6 +5,7 @@ from themoviedb import aioTMDb
 from app import LOGGER
 from utils.utils import get_official_trailer_url
 from config import TMDB_API_KEY
+from guessit import guessit
 
 tmdb = aioTMDb(key=TMDB_API_KEY, language="en-US", region="US")
 
@@ -33,9 +34,6 @@ def async_lru_cache(maxsize=128, typed=False):
         return wrapper
 
     return decorator
-
-def parse_tmdb_input(
-from guessit import guessit
 
 def parse_tmdb_input(
     input_text: str,
